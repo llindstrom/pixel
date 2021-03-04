@@ -179,6 +179,17 @@ class Typer(ast.NodeVisitor):
     def __init__(self):
         self.symtab = symtab.copy()
 
+    def visit_Module(self, node):
+        for child in node.body:
+            if isinstance(child, ast.ImportFrom):
+                print("Have some symbol definitions")
+            elif isinstance(child, ast.If):
+                print("Have a compile-time conditional statement")
+            elif isinstance(child, ast.FunctionDef):
+                self.visit(child)
+            else:
+                raise CompilerError("Unknown top level statement")
+
     def visit_FunctionDef(self, node):
         symtab = self.symtab
         for a in node.args.args:

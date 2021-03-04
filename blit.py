@@ -113,6 +113,13 @@ class Pixel:
             else:  # 'a'
                 self._a = v
 
+    def as_color(self):
+        return self.r, self.g, self.b, self.a
+
+    @classmethod
+    def from_color(cls, color):
+        return cls(color[0], color[1], color[2], color[3])
+
 class GroupFunction:
     """Wrap a function to allow it to work with groups
 
@@ -140,6 +147,35 @@ class GroupFunction:
         
 MIN = GroupFunction(min)
 
+# decorators (wrappers for pygame.Surface blits)
+def blitter(func):
+    def blit(s: 'pygame.Surface', d: 'pygame.Surface'):
+        s_width, s_height = s.get_size()
+        d_width, d_height = d.get_size()
+        if s_width != d_width or s_height != d_height:
+            raise TypeError("source and destination size mismatch")
+        for r in range(s_width):
+            for c in range(s_height):
+                posn = (r, c)
+                d_pixel = Pixel.from_color(d.get_at(posn))
+                func(Pixel.from_color(s.get_at(posn)), d_pixel)
+                d.set_at(posn, d_pixel.as_color())
+    return blit
+
+def transmuter(func):
+    def transmute(d: 'pygame.Surface'):
+        width, height = d.get_size()
+        for c in range(width):
+            for r in range(height):
+                posn = (r, c)
+                pixel = Pixel.from_color(d.get_at(posn))
+                func(pixel)
+                d.set_at(posn, pixel.as_color())
+    return transmute
+
+def macro(func):
+    return func
+
 # alphablend equation
 
 if (-1 >> 1) < 0:
@@ -165,6 +201,7 @@ def ALPHA_BLEND(s, d):
     return dR, dG, dB, dA
 
 ALPHA_BLENDx_SRC = """\
+@blitter
 def ALPHA_BLENDx(s: Pixel, d: Pixel) -> None:
     if d.a:
         d.rgb = ALPHA_BLEND_COMP(s.rgb, d.rgb, s.a)
@@ -189,6 +226,7 @@ def BLEND_ADD(s, d):
     return dR, dG, dB, dA
 
 BLEND_ADDx_SRC = """\
+@blitter
 def BLEND_ADDx(s: Pixel, d: Pixel) -> None:
     d.rgb = MIN(d.rgb + s.rgb, 255)
 """
@@ -202,6 +240,7 @@ def ZERO(d):
     return 0, 0, 0, 0
 
 ZEROx_SRC = """\
+@transmuter
 def ZEROx(d: Pixel) -> None:
     d.rgba = 0
 """
@@ -216,6 +255,7 @@ def ROTATE(d):
     return B, R, G, A
 
 ROTATEx_SRC = """\
+@transmuter
 def ROTATEx(p : Pixel) -> None:
     p.rgb = p.brg
 """

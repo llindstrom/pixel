@@ -3,6 +3,8 @@
 Special case: pixelcopy.
 """
 
+import ast
+
 # Template Types
 
 class Surface:
@@ -83,6 +85,35 @@ def blitter(src_type, dst_type):
                 for sp, dp in zip(next_pix_s, next_pix_d):
                     fn(sp, dp)
 
-        return wrapper
+        return loops(src_type, dst_type, fn)
 
     return wrap
+
+def loops(a, b, fn):
+    body = [call('fn', ['sp', 'dp'])]
+    body = [loop([('sp', a.pix_iter), ('dp', b.pix_iter)], body)]
+    body = [loop([('sc', a.col_iter), ('dc', b.col_iter)], body)]
+    f = function('wrapper', ['s', 'd'], body)
+    return build(f, {'fn': fn})
+
+def build(tree, bindings):
+    m = module(tree)
+    glob = bindings.copy()
+    code = compile(m, __file__, 'exec')
+    exec(code, glob)
+    if isinstance(tree, ast.FunctionDef):
+        return glob[tree.identifier]
+    else:
+        raise ValueError("Unsupported ast node {}".format(type(tree)))
+
+def module(tree):
+    return ast.Module([tree], [])
+
+def function(name, args, body):
+    arglist = [ast.arg(n) for n in args]
+    return ast.arguments([], arglist, [], [], [])
+
+def call(name, args):
+    n = ast.Name(name, ast.Load())
+    a = [ast.Name(x, ast.Load()) for x in args]
+    return ast.Call(n, a, [], [], [])

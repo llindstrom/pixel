@@ -4,60 +4,61 @@ Special case: pixelcopy.
 """
 
 import ast
+import ctypes
 
 # Template Types
 
 class Surface:
     class Pixel:
-        def __init__(self, surf, c, r):
-            self.surf = surf
-            self.posn = c, r
+        def __init__(self, pointer):
+            self.obj = pointer.obj
+            self.addr = pointer.addr
 
         @property
         def pixel(self):
-            return self.surf.get_at_mapped(self.posn)
+            return int(ctypes.c_long.from_address(self.addr).value)
 
         @pixel.setter
         def pixel(self, p):
-            color = self.surf.unmap_rgb(int(p))
-            self.surf.set_at(self.posn, color)
+            ctypes.c_long.from_address(self.addr).value = int(p)
     
     @staticmethod
     def size_of(surf):
         return surf.get_size()
 
-    @classmethod
-    def get_at(cls, surf, col, row):
-        return cls.Pixel(surf, col, row)
+    @staticmethod
+    def strides(surf):
+        return surf.get_bytesize(), surf.get_pitch()
+
+    @staticmethod
+    def pointer(surf):
+        if surf.get_bytesize() != 4:
+            raise ValueError("Only bytesize 4 surfaces supported")
+        return Pointer(surf, surf._pixels_address, ctypes.c_char)
 
 class PixelArray:
-    class Element:
-        def __init__(self, array, c, r):
-            assert(array.ndim == 2)
-            self.array = array
-            self.posn = c, r
+    class Pixel:
+        def __init__(self, pointer):
+            self.obj = pointer.obj
+            self.addr = pointer.addr
 
         def __int__(self):
-            c, r = self.posn
-            return int(self.array[c, r])
-
-        @property
-        def value(self):
-            c, r = self.posn
-            return self.array[c, r]
-
-        @value.setter
-        def value(self, value):
-            c, r = self.posn
-            self.array[c, r] = value
+            return int(ctypes.c_long.from_address(self.addr).value)
 
     @staticmethod
     def size_of(array):
-        return array.shape[0:2]
+        return array.shape
 
-    @classmethod
-    def get_at(cls, array, c, r):
-        return cls.Element(array, c, r)
+    @staticmethod
+    def strides(array):
+        return array.strides
+
+    @staticmethod
+    def pointer(array):
+        if array.itemsize != 4:
+            raise ValueError("Only bytesize 4 array supported")
+        addr = ctypes.addressof(ctypes.c_long.from_buffer(array))
+        return Pointer(array, addr, ctypes.c_char)
 
 # Decorators
 
@@ -65,13 +66,93 @@ def blitter(src_type, dst_type):
     def wrap(fn):
         def wrapper(s, d):
             w, h = src_type.size_of(s)
-            for c in range(w):
-                for r in range(h):
-                    fn(src_type.get_at(s, c, r), dst_type.get_at(d, c, r))
+            sp = src_type.pointer(s)
+            dp = dst_type.pointer(d)
+            s_stride_c, s_stride_r = src_type.strides(s)
+            d_stride_c, d_stride_r = dst_type.strides(d)
+            if s_stride_c > s_stride_r:
+                s_end = sp + w * s_stride_c
+            else:
+                s_end = sp + h * s_stride_r
+            s_delta_c = s_stride_c - s_stride_r * h
+            d_delta_c = d_stride_c - d_stride_r * h
+            while (sp < s_end):
+                r_end = sp + s_stride_r * h
+                while (sp < r_end):
+                    fn(src_type.Pixel(sp), dst_type.Pixel(dp))
+                    sp = sp + s_stride_r
+                    dp = dp + d_stride_r
+                sp = sp + s_delta_c
+                dp = dp + d_delta_c
 
         return wrapper
 
     return wrap
+
+# Internal types
+
+class Pointer:
+    def __init__(self, obj, addr, ctype):
+        self.obj = obj  # To keep alive
+        self.addr = addr
+        self.ctype = ctype
+        self.size = ctypes.sizeof(ctype)
+
+    def __int__(self):
+        return addr
+
+    def __add__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only add integers to a pointer")
+        addr = self.addr + self.size * other
+        return Pointer(self.obj, addr, self.ctype)
+
+    def __radd__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only add integers to a pointer")
+        addr = self.addr + self.size * other
+        return Pointer(self.obj, addr, self.ctype)
+
+    def __sub__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only subtract integers from a pointer")
+        addr = self.addr - self.size * other
+        return Pointer(self.obj, self.addr - self.size, self.ctype)
+
+    def __rsub__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only subtract integers from a pointer")
+        return self.size * other - self.addr
+
+    def __getitem__(self, key):
+        if not isinstance(key, int):
+            raise TypeError("Only single integer keys allowed")
+        addr = self.addr + self.size * key
+        return self.ctype.from_address(addr).value
+
+    def __setitem__(self, key, value):
+        if not isinstance(key, int):
+            raise TypeError("Only single integer keys allowed")
+        addr = self.addr + self.size * key
+        self.ctype.from_address(addr).value = value
+
+    def __eq__(self, other):
+        return self.addr == other.addr
+
+    def __ne__(self, other):
+        return self.addr != other.addr
+
+    def __lt__(self, other):
+        return self.addr < other.addr
+
+    def __le__(self, other):
+        return self.addr <= other.addr
+
+    def __gt__(self, other):
+        return self.addr > other.addr
+
+    def __ge__(self, other):
+        return self.addr >= other.addr
 
 '''   may use?
 def loops(a, b, fn):

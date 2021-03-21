@@ -77,6 +77,8 @@ def blitter(src_type, dst_type):
             dp = dst_type.pointer(d)
             s_stride_c, s_stride_r = src_type.strides(s)
             d_stride_c, d_stride_r = dst_type.strides(d)
+
+            # Loop over rows.
             if s_stride_c > s_stride_r:
                 s_end = sp + w * s_stride_c
             else:
@@ -84,11 +86,13 @@ def blitter(src_type, dst_type):
             s_delta_r = s_stride_r - s_stride_c * w
             d_delta_r = d_stride_r - d_stride_c * w
             while (sp < s_end):
-                c_end = sp + s_stride_c * w
-                while (sp < c_end):
+                # Loop over columns.
+                r_end = sp + s_stride_c * w
+                while (sp < r_end):
                     fn(src_type.Pixel(sp), dst_type.Pixel(dp))
                     sp += s_stride_c
                     dp += d_stride_c
+
                 sp += s_delta_r
                 dp += d_delta_r
 

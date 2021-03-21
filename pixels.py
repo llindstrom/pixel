@@ -11,8 +11,13 @@ import ctypes
 class Surface:
     class Pixel:
         def __init__(self, pointer):
+            if pointer.addr % 4 != 0:
+                raise ValueError("Pointer not aligned on word boundary")
             self.obj = pointer.obj
             self.addr = pointer.addr
+
+        def __int__(self):
+            return int(ctypes.c_long.from_address(self.addr).value)
 
         @property
         def pixel(self):
@@ -39,6 +44,8 @@ class Surface:
 class PixelArray:
     class Pixel:
         def __init__(self, pointer):
+            if pointer.addr % 4 != 0:
+                raise ValueError("Pointer not aligned on word boundary")
             self.obj = pointer.obj
             self.addr = pointer.addr
 
@@ -57,7 +64,7 @@ class PixelArray:
     def pointer(array):
         if array.itemsize != 4:
             raise ValueError("Only bytesize 4 array supported")
-        addr = ctypes.addressof(ctypes.c_long.from_buffer(array))
+        addr = array.__array_interface__['data'][0]
         return Pointer(array, addr, ctypes.c_char)
 
 # Decorators
@@ -74,16 +81,16 @@ def blitter(src_type, dst_type):
                 s_end = sp + w * s_stride_c
             else:
                 s_end = sp + h * s_stride_r
-            s_delta_c = s_stride_c - s_stride_r * h
-            d_delta_c = d_stride_c - d_stride_r * h
+            s_delta_r = s_stride_r - s_stride_c * w
+            d_delta_r = d_stride_r - d_stride_c * w
             while (sp < s_end):
-                r_end = sp + s_stride_r * h
-                while (sp < r_end):
+                c_end = sp + s_stride_c * w
+                while (sp < c_end):
                     fn(src_type.Pixel(sp), dst_type.Pixel(dp))
-                    sp = sp + s_stride_r
-                    dp = dp + d_stride_r
-                sp = sp + s_delta_c
-                dp = dp + d_delta_c
+                    sp += s_stride_c
+                    dp += d_stride_c
+                sp += s_delta_r
+                dp += d_delta_r
 
         return wrapper
 
@@ -113,6 +120,12 @@ class Pointer:
         addr = self.addr + self.size * other
         return Pointer(self.obj, addr, self.ctype)
 
+    def __iadd__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only add integers to a pointer")
+        self.addr += self.size * other
+        return self
+
     def __sub__(self, other):
         if not isinstance(other, int):
             raise TypeError("Can only subtract integers from a pointer")
@@ -123,6 +136,12 @@ class Pointer:
         if not isinstance(other, int):
             raise TypeError("Can only subtract integers from a pointer")
         return self.size * other - self.addr
+
+    def __isub__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only subtract integers from a pointer")
+        self.addr -= self.dsize * other
+        return self
 
     def __getitem__(self, key):
         if not isinstance(key, int):
@@ -154,33 +173,3 @@ class Pointer:
     def __ge__(self, other):
         return self.addr >= other.addr
 
-'''   may use?
-def loops(a, b, fn):
-    body = [call('fn', ['sp', 'dp'])]
-    body = [loop([('sp', a.pix_iter), ('dp', b.pix_iter)], body)]
-    body = [loop([('sc', a.col_iter), ('dc', b.col_iter)], body)]
-    f = function('wrapper', ['s', 'd'], body)
-    return build(f, {'fn': fn})
-
-def build(tree, bindings):
-    m = module(tree)
-    glob = bindings.copy()
-    code = compile(m, __file__, 'exec')
-    exec(code, glob)
-    if isinstance(tree, ast.FunctionDef):
-        return glob[tree.identifier]
-    else:
-        raise ValueError("Unsupported ast node {}".format(type(tree)))
-
-def module(tree):
-    return ast.Module([tree], [])
-
-def function(name, args, body):
-    arglist = [ast.arg(n) for n in args]
-    return ast.arguments([], arglist, [], [], [])
-
-def call(name, args):
-    n = ast.Name(name, ast.Load())
-    a = [ast.Name(x, ast.Load()) for x in args]
-    return ast.Call(n, a, [], [], [])
-'''

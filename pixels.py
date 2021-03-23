@@ -79,10 +79,7 @@ def blitter(src_type, dst_type):
             d_stride_c, d_stride_r = dst_type.strides(d)
 
             # Loop over rows.
-            if s_stride_c > s_stride_r:
-                s_end = sp + w * s_stride_c
-            else:
-                s_end = sp + h * s_stride_r
+            s_end = sp + h * s_stride_r
             s_delta_r = s_stride_r - s_stride_c * w
             d_delta_r = d_stride_r - d_stride_c * w
             while (sp < s_end):

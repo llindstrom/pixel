@@ -52,6 +52,14 @@ class PixelArray:
         def __int__(self):
             return int(ctypes.c_long.from_address(self.addr).value)
 
+        @property
+        def pixel(self):
+            return int(ctypes.c_long.from_address(self.addr).value)
+
+        @pixel.setter
+        def pixel(self, p):
+            ctypes.c_long.from_address(self.addr).value = int(p)
+
     @staticmethod
     def size_of(array):
         return array.shape

@@ -255,11 +255,7 @@ class TreeBuilder:
             if not body:
                 msg = "If statement must have at least 1 body statement"
                 raise BuildError(msg)
-            prev_lineno = self._lineno
-            self._lineno = lineno
-            retval = ast.If(test, body, [], **self._posn())
-            self._lineno = prev_lineno
-            return retval
+            return ast.If(test, body, [], **self._posn(lineno=lineno))
 
         lineno = self._lineno
         self._lineno += 1
@@ -273,11 +269,7 @@ class TreeBuilder:
             if not body:
                 msg = "While statement must have at least 1 body statement"
                 raise BuildError(msg)
-            prev_lineno = self._lineno
-            self._lineno = lineno
-            retval = ast.While(test, body, [], **self._posn())
-            self._lineno = prev_lineno
-            return retval
+            return ast.While(test, body, [], **self._posn(lineno=lineno))
 
         lineno = self._lineno
         self._lineno += 1

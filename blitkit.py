@@ -1,5 +1,3 @@
-import functools
-
 class Blitter:
     def __init__(self, method, loop_indices):
         if len(loop_indices) != 2:
@@ -22,15 +20,14 @@ class BlitterFactory:
         raise NotImplementedError("To be implemented in subclasses")
 
 class C_Iterators(BlitterFactory):
-    """Stub factory; indices are ignored"""
-
     def __call__(self, fn):
-        """Stub function"""
         src_type = self.src_type
         dst_type = self.dst_type
         loop_indices = self.loop_indices
         ndims = len(loop_indices)
 
+        if (ndims != 2):
+            raise NotImplementedError("Only 2 dimensional arrays supported so far")
         lines = ["def do_blit(s, d):", indent]
         lines += get_dims(ndims, 'src_type', 's')
         lines += ["sp = src_type.pointer(s)", "dp = dst_type.pointer(d)"]
@@ -38,10 +35,7 @@ class C_Iterators(BlitterFactory):
         lines += get_strides(ndims, 'dst_type', 'd')
         i = loop_indices[0]
         lines += ["", f"# Loop over index {i}..."]
-        if (ndims == 2):
-            lines += [f"s_end = sp + d{i} * s_stride_{i}"]
-        else:
-            raise NotImplementedError("Only 2 dimensional arrays supported so far")
+        lines += [f"s_end = sp + d{i} * s_stride_{i}"]
         lines += get_delta(loop_indices[0], loop_indices[1], 's')
         lines += get_delta(loop_indices[0], loop_indices[1], 'd')
         lines += ["while sp < s_end:", indent]

@@ -54,7 +54,8 @@ def stackop(method):
     n_stack_args = method.__code__.co_argcount - 1  # assume 'self' arg.
     if n_stack_args == 0:
         def wrapper(self):
-            self._stack.push(method(self))
+            self._stack.append(method(self))
+            return self
     else:
         def wrapper(self):
             try:
@@ -64,6 +65,7 @@ def stackop(method):
                 msg = f"{method.__name__} requires {n_stack_args} stack items"
                 raise BuildError(msg)
             self._stack.append(method(self, *items))
+            return self
 
     wrapper.__doc__ = method.__doc__
     return wrapper
@@ -76,6 +78,7 @@ def stackappend(method):
     """
     def wrapper(self, *args):
         self._stack.append(method(self, *args))
+        return self
 
     wrapper.__doc__ = method.__doc__
     return wrapper
@@ -99,12 +102,18 @@ def stackflush(method):
 def stackbegin(method):
     """Decorate a method as a block start point
     
-    The method's return value has attribute '**BEGIN**' as a flag to the
-    end method.
+    Places None on the stack as a stack start marker. This decorator
+    must follow other decorators.
+
+    eg:
+
+        @stackbegin
+        @stackop
+        def Something(....
     """
     def wrapper(self, *args):
         retval = method(self, *args)
-        setattr(retval, '**BEGIN**', True)
+        self._stack.append(None)
         return retval
 
     return wrapper
@@ -125,7 +134,7 @@ class TreeBuilder:
             self._mult = ast.Mult()
             self._add = ast.Add()
         # the line number of the next instruction
-        self._lineno = 0
+        self._lineno = 1
 
     @stackflush
     def Expression(self, items):
@@ -139,12 +148,12 @@ class TreeBuilder:
             nitems = len(items)
             msg = f"Expression expects only 1 stack item: found {nitems} items"
             raise BuildError(msg)
-        return ast.Expression(items[0], lineno=0, col_offset=0)
+        return ast.Expression(items[0], **self._posn(lineno=0))
 
     @stackappend
     def Constant(self, value):
         """Constant AST node"""
-        return ast.Constant(value, lineno=self._lineno, col_offset=0)
+        return ast.Constant(value, **self._posn())
 
     @stackappend
     def Name(self, id):
@@ -152,19 +161,17 @@ class TreeBuilder:
 
         Initially assumed to be an identifier load.
         """
-        return ast.Name(id, self._load, lineno=self._lineno, col_offset=0)
+        return ast.Name(id, self._load, **self._posn())
 
     @stackop
     def Mult(self, left, right):
         """Binary multiplication operation"""
-        return ast.BinOp(left, self._mult, right,
-                         lineno=self._linenoi, col_offset=0)
+        return ast.BinOp(left, self._mult, right, **self._posn())
 
     @stackop
     def Add(self, left, right):
         """Binary addition operation"""
-        return ast.BinOp(left, self._add, right,
-                         lineno=self._lineno, col_offset=0)
+        return ast.BinOp(left, self._add, right, **self._posn())
 
     # Methods beyond this point are AST statements.
 
@@ -177,8 +184,7 @@ class TreeBuilder:
         if not (target.lineno == value.lineno == lineno):
             msg = "Assign1 arguments must be expressions"
             raise BuildError(msg)
-        self._lineno += 1
-        return ast.Assign([target], value, lineno=lineno, col_offset=0)
+        return ast.Assign([target], value, **self._posn_incr())
 
     @stackop
     def IAdd(self, target, value):
@@ -189,9 +195,7 @@ class TreeBuilder:
         if not (target.lineno == value.lineno == lineno):
             msg = "IAdd arguments must be expressions"
             raise BuildError(msg)
-        self._lineno += 1
-        return ast.AugAssign(target, self._add, value,
-                             lineno=lineno, col_offset=0)
+        return ast.AugAssign(target, self._add, value, **self._posn_incr())
 
     @stackop
     def ISub(self, target, value):
@@ -202,9 +206,7 @@ class TreeBuilder:
         if not (target.lineno == value.lineno == lineno):
             msg = "ISub arguments must be expressions"
             raise BuildError(msg)
-        self._lineno += 1
-        return ast.AugAssign(target, self._sub, value,
-                             lineno=lineno, col_offset=0)
+        return ast.AugAssign(target, self._sub, value, **self._posn_incr())
 
     @stackbegin
     @stackop
@@ -217,21 +219,38 @@ class TreeBuilder:
             if self._lineno > lineno:
                 msg = "Assignment arguments must be expressions only"
                 raise BuildError(msg)
-            self._lineno += 1
             targets = args[0:-1]
             value = args[-1]
             for t in targets:
                 if isinstance(t, ast.Name):
                     t.ctx = self._store
-            return ast.Assign(targets, value, lineno=lineno, col_offset=0)
+            return ast.Assign(targets, value, **self._posn_incr())
 
         lineno = self._lineno
         return do_assign
 
+    @stackbegin
+    @stackop
+    def If(self, test):
+        """If statement"""
+        def do_if(body):
+            if not body:
+                msg = "If statement must have at least 1 body statement"
+                raise BuildError(msg)
+            prev_lineno = self._lineno
+            self._lineno = lineno
+            retval = ast.If(test, body, [], **self._posn())
+            self._lineno = prev_lineno
+            return retval
+
+        lineno = self._lineno
+        self._lineno += 1
+        return do_if
+
     @stackflush
     def Module(self, items):
         """Module AST root node"""
-        return ast.Module(items, [], lineno=0, col_offset=0)
+        return ast.Module(items, [], **self._posn(lineno=0))
             
     # Statement helpers.
 
@@ -242,19 +261,37 @@ class TreeBuilder:
         except IndexError:
             raise BuildError("Expected something to precede end")
         args = []
-        while not hasattr(arg, "**BEGIN**"):
+        while arg is not None:
             args.append(arg)
             try:
                 arg = self._stack.pop()
             except IndexError:
                 raise BuildError("No corresponding block statement found")
+        func = self._stack.pop()
         args.reverse()
-        self._stack.append(arg(args))
+        self._stack.append(func(args))
 
     def orelse(self):
         """Start an else block for an If statement"""
-        pass
+        raise NotImplementedError("ToDo")
 
     def elseif(self):
         """Start an elif block for an If statement"""
-        pass
+        raise NotImplementedError("ToDo")
+
+    # General helpers
+
+    def _posn(self, lineno=None, col_offset=None):
+        if lineno is None:
+            lineno = self._lineno
+        if col_offset is None:
+            col_offset = 0
+        return {'lineno': lineno,
+                'col_offset': col_offset,
+                'end_lineno': lineno,
+                'end_col_offset': col_offset}
+
+    def _posn_incr(self):
+        posn = self._posn()
+        self._lineno += 1
+        return posn

@@ -6,34 +6,35 @@ Examples:
     
     >>> import ast, astkit as ak
     >>> build = ak.TreeBuilder()
-    >>> build.Constant(2)
-    >>> build.Name('a')
-    >>> build.Mult()
-    >>> build.Constant(4)
-    >>> build.Add()
-    >>> expr = build.Expression()
-    >>> expr
-    <ast.Expression at 0xb34e9490>
-    >>> print(ast.unparse(expr))
-    2 * a + 4
-
-    >>> build.Assign()
-    >>> build.Name('meaning_of_life')
-    >>> build.Name('the_altimate_answer')
-    >>> build.Constant(42)
-    >>> build.end()
+    >>> (build.Name('prime').Constant(1).Assign1()
+    ...       .Name('n').While()
+    ...       .Name('prime').Name('n').IMult()
+    ...       .Name('n').Constant(1).ISub()
+    ...       .end())
     >>> module = build.Module()
-    >>> print(ast.dump(module, indent=4))
-    Module(
-        body=[
-            Assign(
-                targets=[
-                    Name(id='meaning_of_life', ctx=Store()),
-                    Name(id='the_altimate_answer', ctx=Store())],
-                value=Constant(value=42))],
-        type_ignores=[])
     >>> print(ast.unparse(module))
-    meaning_of_life = the_altimate_answer = 42
+    prime = 1
+    while n:
+        prime *= n
+        n -= 1
+    >>> code = compile(module, '<prime>', 'exec')
+    >>> lcls = {'n': 3}
+    >>> exec(code, globals(), lcls)
+    >>> print(lcls)
+    {'n': 0, 'prime': 6}
+    >>> expr = (build
+    ...     .Name('a')
+    ...     .Constant(2)
+    ...     .Add()
+    ...     .Constant(3)
+    ...     .Mult()
+    ...     .Expression())
+    >>> print(ast.unparse(expr))
+    (a + 2) * 3
+    >>> code = compile(expr, '<addmult>', 'eval')
+    >>> lcls = {'a': 12}
+    >>> print(eval(code, globals(), lcls))
+    42
     
 """
 
@@ -133,6 +134,7 @@ class TreeBuilder:
             self._store = ast.Store()
             self._mult = ast.Mult()
             self._add = ast.Add()
+            self._sub = ast.Sub()
         # the line number of the next instruction
         self._lineno = 1
 
@@ -164,14 +166,19 @@ class TreeBuilder:
         return ast.Name(id, self._load, **self._posn())
 
     @stackop
-    def Mult(self, left, right):
-        """Binary multiplication operation"""
-        return ast.BinOp(left, self._mult, right, **self._posn())
-
-    @stackop
     def Add(self, left, right):
         """Binary addition operation"""
         return ast.BinOp(left, self._add, right, **self._posn())
+
+    @stackop
+    def Sub(self, left, right):
+        """Binary subtraction operation"""
+        return ast.BinOp(left, self._sub, right, **self._posn())
+
+    @stackop
+    def Mult(self, left, right):
+        """Binary multiplication operation"""
+        return ast.BinOp(left, self._mult, right, **self._posn())
 
     # Methods beyond this point are AST statements.
 
@@ -207,6 +214,17 @@ class TreeBuilder:
             msg = "ISub arguments must be expressions"
             raise BuildError(msg)
         return ast.AugAssign(target, self._sub, value, **self._posn_incr())
+
+    @stackop
+    def IMult(self, target, value):
+        """Inplace multipilication"""
+        if isinstance(target, ast.Name):
+            target.ctx = self._store
+        lineno = self._lineno
+        if not (target.lineno == value.lineno == lineno):
+            msg = "IMult arguments must be expressions"
+            raise BuildError(msg)
+        return ast.AugAssign(target, self._mult, value, **self._posn_incr())
 
     @stackbegin
     @stackop
@@ -246,6 +264,24 @@ class TreeBuilder:
         lineno = self._lineno
         self._lineno += 1
         return do_if
+
+    @stackbegin
+    @stackop
+    def While(self, test):
+        """While statement"""
+        def do_while(body):
+            if not body:
+                msg = "While statement must have at least 1 body statement"
+                raise BuildError(msg)
+            prev_lineno = self._lineno
+            self._lineno = lineno
+            retval = ast.While(test, body, [], **self._posn())
+            self._lineno = prev_lineno
+            return retval
+
+        lineno = self._lineno
+        self._lineno += 1
+        return do_while
 
     @stackflush
     def Module(self, items):

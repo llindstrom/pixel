@@ -105,7 +105,7 @@ def deferred(method):
     """Decorate a method as a block start point
     
     Places None on the stack as a stack start marker. This decorator
-    must follow other decorators.
+    must precede other decorators.
 
     eg:
 

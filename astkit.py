@@ -3,26 +3,26 @@
 Preliminary trial version
 
 Examples:
-    
+
     >>> import ast, astkit as ak
     >>> build = ak.TreeBuilder()
     >>> module = (build
     ...     .Name('prime').Constant(1).Assign1()
-    ...     .Name('n').While()
+    ...     .Name('n').Constant(1).Gt().While()
     ...     .Name('prime').Name('n').IMult()
     ...     .Name('n').Constant(1).ISub()
     ...     .end()
     ...     .Module())
     >>> print(ast.unparse(module))
     prime = 1
-    while n:
+    while n > 1:
         prime *= n
         n -= 1
     >>> code = compile(module, '<prime>', 'exec')
     >>> lcls = {'n': 3}
     >>> exec(code, globals(), lcls)
     >>> print(lcls)
-    {'n': 0, 'prime': 6}
+    {'n': 1, 'prime': 6}
     >>> expr = (build
     ...     .Name('a')
     ...     .Constant(2)
@@ -36,7 +36,7 @@ Examples:
     >>> lcls = {'a': 12}
     >>> print(eval(code, globals(), lcls))
     42
-    
+
 """
 
 import ast
@@ -103,7 +103,7 @@ def stackflush(method):
 
 def deferred(method):
     """Decorate a method as a block start point
-    
+
     Places None on the stack as a stack start marker. This decorator
     must precede other decorators.
 
@@ -136,6 +136,14 @@ class TreeBuilder:
             self._mult = ast.Mult()
             self._add = ast.Add()
             self._sub = ast.Sub()
+            self._eq = ast.Eq()
+            self._noteq = ast.NotEq()
+            self._lt = ast.Lt()
+            self._lte = ast.LtE()
+            self._gt = ast.Gt()
+            self._gte = ast.GtE()
+            self._assignables = (
+                    ast.Name, ast.Attribute, ast.Subscript, ast.Tuple)
         # the line number of the next instruction
         self._lineno = 1
 
@@ -189,50 +197,149 @@ class TreeBuilder:
             raise BuildError("Mult arguments must be expressions")
         return ast.BinOp(left, self._mult, right, **self._posn())
 
+    @stackop
+    def Eq(self, left, right):
+        """Equality comparison (binary operation only)"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("Eq arguments must be expressions")
+        return ast.Compare(left, [self._eq], [right], **self._posn())
+
+    @stackop
+    def NotEq(self, left, right):
+        """Inequality comparison (binary operation only)"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("NotEq arguments must be expressions")
+        return ast.Compare(left, [self._noteq], [right], **self._posn())
+
+    @stackop
+    def Lt(self, left, right):
+        """Less than comparison (binary operation only)"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("Lt arguments must be expressions")
+        return ast.Compare(left, [self._lt], [right], **self._posn())
+
+    @stackop
+    def LtE(self, left, right):
+        """Less that or equal comparison (binary operation only)"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("LtE arguments must be expressions")
+        return ast.Compare(left, [self._lte], [right], **self._posn())
+
+    @stackop
+    def Gt(self, left, right):
+        """Greater than comparison (binary operation only)"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("Gt arguments must be expressions")
+        return ast.Compare(left, [self._gt], [right], **self._posn())
+
+    @stackop
+    def GtE(self, left, right):
+        """Greater that or equal comparison (binary operation only)"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("GtE arguments must be expressions")
+        return ast.Compare(left, [self._gte], [right], **self._posn())
+
+    @stackop
+    def Attribute(self, value, attr):
+        """Attribute access
+
+        Initially assumed to be an attribute get.
+        """
+        if not isinstance(attr, str):
+            raise BuildError("Attribute identifier must be a string")
+        if not isinstance(value, ast.expr):
+            raise BuildError("Attribute value must be an expression")
+        return ast.Attribute(value, attr, self._load, **self._posn())
+
+    @deferred
+    @stackop
+    def Tuple(self):
+        """Tuple literal"""
+        def do_tuple(elements):
+            for e in elements:
+                if not isinstance(e, ast.expr):
+                    msg = f"Tuple element {e} not an expression"
+                    raise BuildError(msg)
+            return ast.Tuple(elements, self._load, **self._posn())
+
+        return do_tuple
+
+    @deferred
+    @stackop
+    def Call(self, function):
+        """Function Call expression"""
+        def do_call(arguments):
+            for item in arguments:
+                if not isinstance(item, ast.expr):
+                    msg = f"Function argument {item} is not an expressions"
+                    raise BuildError(msg)
+            return ast.Call(function, arguments, [], **self._posn())
+
+        if not isinstance(function, ast.expr):
+            raise BuildError("The Call target must be an expression")
+        return do_call
+
+    @stackappend
+    def identifier(self, id_str):
+        """Add an identifier string to the stack"""
+        if not isinstance(id_str, str):
+            raise BuildError("identifier argument must be a string")
+        return id_str
+
+    @deferred
+    @stackop
+    def arguments(self):
+        """Function call arguments"""
+        def do_arguments(args):
+            arglist = []
+            for a in args:
+                if not isinstance(a, str):
+                    msg = "arguments only allows identifiers in argument list"
+                    raise BuildError(msg)
+                arglist.append(ast.arg(a, **self._posn()))
+            return ast.arguments([], arglist,
+                                 vararg=None, kwonlyargs=[], kwarg=None,
+                                 kw_defaults=[], defaults=[], **self._posn())
+
+        return do_arguments
+
     # Methods beyond this point are AST statements.
 
     @stackop
     def Assign1(self, target, value):
         """Single target assignment"""
-        if isinstance(target, ast.Name):
-            target.ctx = self._store
-        lineno = self._lineno
-        if not (target.lineno == value.lineno == lineno):
-            msg = "Assign1 arguments must be expressions"
+        self._check_assignable(target, 'Assign1')
+        set_ctx(target, self._store)
+        if not isinstance(value, ast.expr):
+            msg = "Assign1 value must be expressions"
             raise BuildError(msg)
         return ast.Assign([target], value, **self._posn_incr())
 
     @stackop
     def IAdd(self, target, value):
         """Inplace addition"""
-        if not isinstance(target, ast.expr):
-            raise BuildError("IAdd target must be an expression")
+        self._check_assignable(target, 'IAdd')
         if not isinstance(value, ast.expr):
             raise BuildError("IAdd value must be an expression")
-        if isinstance(target, ast.Name):
-            target.ctx = self._store
+        set_ctx(target, self._store)
         return ast.AugAssign(target, self._add, value, **self._posn_incr())
 
     @stackop
     def ISub(self, target, value):
         """Inplace subtraction"""
-        if not isinstance(target, ast.expr):
-            raise BuildError("ISub target must be an expression")
+        self._check_assignable(target, 'ISub')
         if not isinstance(value, ast.expr):
             raise BuildError("ISub value must be an expression")
-        if isinstance(target, ast.Name):
-            target.ctx = self._store
+        set_ctx(target, self._store)
         return ast.AugAssign(target, self._sub, value, **self._posn_incr())
 
     @stackop
     def IMult(self, target, value):
         """Inplace multipilication"""
-        if not isinstance(target, ast.expr):
-            raise BuildError("IMult target must be an expression")
+        self._check_assignable(target, 'IMult')
         if not isinstance(value, ast.expr):
             raise BuildError("IMult value must be an expression")
-        if isinstance(target, ast.Name):
-            target.ctx = self._store
+        set_ctx(target, self._store)
         return ast.AugAssign(target, self._mult, value, **self._posn_incr())
 
     @deferred
@@ -249,11 +356,8 @@ class TreeBuilder:
                 msg = f"Assignment right hand node {value} not an expression"
                 raise BuildError(msg)
             for t in targets:
-                if not isinstance(t, ast.expr):
-                    msg = f"Assign target {t} is not an expression"
-                    raise BuildError(msg)
-                if isinstance(t, ast.Name):
-                    t.ctx = self._store
+                self._check_assignable(t, 'Assign')
+                set_ctx(t, self._store)
             return ast.Assign(targets, value, **self._posn_incr())
 
         return do_assign
@@ -296,21 +400,6 @@ class TreeBuilder:
         self._lineno += 1
         return do_while
 
-    @deferred
-    @stackop
-    def Call(self, function):
-        """Function Call expression"""
-        def do_call(arguments):
-            for item in arguments:
-                if not isinstance(item, ast.expr):
-                    msg = f"Function argument {item} is not an expressions"
-                    raise BuildError(msg)
-            return ast.Call(function, arguments, [], **self._posn())
-
-        if not isinstance(function, ast.expr):
-            raise BuildError("The Call target must be an expression")
-        return do_call
-
     @stackop
     def Expr(self, expression):
         """Makes an expression a statement (e.g. a function call)"""
@@ -322,6 +411,30 @@ class TreeBuilder:
     def Pass(self):
         return ast.Pass(**self._posn_incr())
 
+    @deferred
+    @stackop
+    def FunctionDef(self, name, args):
+        """Function definition"""
+        def do_functiondef(body):
+            for item in body:
+                if not isinstance(item, ast.stmt):
+                    msg = "Only statements allowed in FunctionDef body"
+                    raise BuildError(msg)
+            FD = ast.FunctionDef
+            return FD(name, args, body, decorator_list=[],
+                      **self._posn(lineno=lineno))
+
+        lineno = self._lineno
+        self._lineno += 1
+        return do_functiondef
+
+    @stackop
+    def Return(self, value):
+        """Return value"""
+        if not isinstance(value, ast.expr):
+            raise BuildError("Return expects an expression")
+        return ast.Return(value, **self._posn_incr())
+
     @stackflush
     def Module(self, items):
         """Module AST root node"""
@@ -330,7 +443,7 @@ class TreeBuilder:
                 msg = f"Module item {item} is not a statement"
                 raise BuildError(msg)
         return ast.Module(items, [], **self._posn(lineno=0))
-            
+
     # Statement helpers.
 
     def end(self):
@@ -375,3 +488,15 @@ class TreeBuilder:
         posn = self._posn()
         self._lineno += 1
         return posn
+
+    def _check_assignable(self, node, method_name):
+        """Raise a BuildError is node is not an assignable expression"""
+        if not isinstance(node, self._assignables):
+            msg = f"{method_name} target {node} is not an assignable expression"
+            raise BuildError(msg)
+
+def set_ctx(node, ctx):
+    node.ctx = ctx
+    if isinstance(node, ast.Tuple):
+        for e in node.elts:
+            set_ctx(e, ctx)

@@ -6,12 +6,13 @@ Examples:
     
     >>> import ast, astkit as ak
     >>> build = ak.TreeBuilder()
-    >>> (build.Name('prime').Constant(1).Assign1()
-    ...       .Name('n').While()
-    ...       .Name('prime').Name('n').IMult()
-    ...       .Name('n').Constant(1).ISub()
-    ...       .end())
-    >>> module = build.Module()
+    >>> module = (build
+    ...     .Name('prime').Constant(1).Assign1()
+    ...     .Name('n').While()
+    ...     .Name('prime').Name('n').IMult()
+    ...     .Name('n').Constant(1).ISub()
+    ...     .end()
+    ...     .Module())
     >>> print(ast.unparse(module))
     prime = 1
     while n:
@@ -100,7 +101,7 @@ def stackflush(method):
     wrapper.__doc__ = method.__doc__
     return wrapper
 
-def stackbegin(method):
+def deferred(method):
     """Decorate a method as a block start point
     
     Places None on the stack as a stack start marker. This decorator
@@ -108,7 +109,7 @@ def stackbegin(method):
 
     eg:
 
-        @stackbegin
+        @deferred
         @stackop
         def Something(....
     """
@@ -163,21 +164,29 @@ class TreeBuilder:
 
         Initially assumed to be an identifier load.
         """
+        if not isinstance(id, str):
+            raise BuildError("Name argument must be a string")
         return ast.Name(id, self._load, **self._posn())
 
     @stackop
     def Add(self, left, right):
         """Binary addition operation"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("Add arguments must be expressions")
         return ast.BinOp(left, self._add, right, **self._posn())
 
     @stackop
     def Sub(self, left, right):
         """Binary subtraction operation"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("Sub arguments must be expressions")
         return ast.BinOp(left, self._sub, right, **self._posn())
 
     @stackop
     def Mult(self, left, right):
         """Binary multiplication operation"""
+        if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
+            raise BuildError("Mult arguments must be expressions")
         return ast.BinOp(left, self._mult, right, **self._posn())
 
     # Methods beyond this point are AST statements.
@@ -196,37 +205,37 @@ class TreeBuilder:
     @stackop
     def IAdd(self, target, value):
         """Inplace addition"""
+        if not isinstance(target, ast.expr):
+            raise BuildError("IAdd target must be an expression")
+        if not isinstance(value, ast.expr):
+            raise BuildError("IAdd value must be an expression")
         if isinstance(target, ast.Name):
             target.ctx = self._store
-        lineno = self._lineno
-        if not (target.lineno == value.lineno == lineno):
-            msg = "IAdd arguments must be expressions"
-            raise BuildError(msg)
         return ast.AugAssign(target, self._add, value, **self._posn_incr())
 
     @stackop
     def ISub(self, target, value):
         """Inplace subtraction"""
+        if not isinstance(target, ast.expr):
+            raise BuildError("ISub target must be an expression")
+        if not isinstance(value, ast.expr):
+            raise BuildError("ISub value must be an expression")
         if isinstance(target, ast.Name):
             target.ctx = self._store
-        lineno = self._lineno
-        if not (target.lineno == value.lineno == lineno):
-            msg = "ISub arguments must be expressions"
-            raise BuildError(msg)
         return ast.AugAssign(target, self._sub, value, **self._posn_incr())
 
     @stackop
     def IMult(self, target, value):
         """Inplace multipilication"""
+        if not isinstance(target, ast.expr):
+            raise BuildError("IMult target must be an expression")
+        if not isinstance(value, ast.expr):
+            raise BuildError("IMult value must be an expression")
         if isinstance(target, ast.Name):
             target.ctx = self._store
-        lineno = self._lineno
-        if not (target.lineno == value.lineno == lineno):
-            msg = "IMult arguments must be expressions"
-            raise BuildError(msg)
         return ast.AugAssign(target, self._mult, value, **self._posn_incr())
 
-    @stackbegin
+    @deferred
     @stackop
     def Assign(self):
         """Multi target assignment"""
@@ -234,20 +243,22 @@ class TreeBuilder:
             if len(args) < 2:
                 msg = "Assign requires one or more targets and a value"
                 raise BuildError(msg)
-            if self._lineno > lineno:
-                msg = "Assignment arguments must be expressions only"
-                raise BuildError(msg)
             targets = args[0:-1]
             value = args[-1]
+            if not isinstance(value, ast.expr):
+                msg = f"Assignment right hand node {value} not an expression"
+                raise BuildError(msg)
             for t in targets:
+                if not isinstance(t, ast.expr):
+                    msg = f"Assign target {t} is not an expression"
+                    raise BuildError(msg)
                 if isinstance(t, ast.Name):
                     t.ctx = self._store
             return ast.Assign(targets, value, **self._posn_incr())
 
-        lineno = self._lineno
         return do_assign
 
-    @stackbegin
+    @deferred
     @stackop
     def If(self, test):
         """If statement"""
@@ -255,13 +266,17 @@ class TreeBuilder:
             if not body:
                 msg = "If statement must have at least 1 body statement"
                 raise BuildError(msg)
+            for item in body:
+                if not isinstance(item, ast.stmt):
+                    msg = f"If statement body item {item} not a statement"
+                    raise BuildError(msg)
             return ast.If(test, body, [], **self._posn(lineno=lineno))
 
         lineno = self._lineno
         self._lineno += 1
         return do_if
 
-    @stackbegin
+    @deferred
     @stackop
     def While(self, test):
         """While statement"""
@@ -269,21 +284,57 @@ class TreeBuilder:
             if not body:
                 msg = "While statement must have at least 1 body statement"
                 raise BuildError(msg)
+            for item in body:
+                if not isinstance(item, ast.stmt):
+                    msg = f"While statement body item {item} not a statement"
+                    raise BuildError(msg)
             return ast.While(test, body, [], **self._posn(lineno=lineno))
 
+        if not isinstance(test, ast.expr):
+            raise BuildError("The While test must be an expression")
         lineno = self._lineno
         self._lineno += 1
         return do_while
 
+    @deferred
+    @stackop
+    def Call(self, function):
+        """Function Call expression"""
+        def do_call(arguments):
+            for item in arguments:
+                if not isinstance(item, ast.expr):
+                    msg = f"Function argument {item} is not an expressions"
+                    raise BuildError(msg)
+            return ast.Call(function, arguments, [], **self._posn())
+
+        if not isinstance(function, ast.expr):
+            raise BuildError("The Call target must be an expression")
+        return do_call
+
+    @stackop
+    def Expr(self, expression):
+        """Makes an expression a statement (e.g. a function call)"""
+        if not isinstance(expression, ast.expr):
+            raise BuildError("The Expr argument must be an expression")
+        return ast.Expr(expression, **self._posn_incr())
+
+    @stackappend
+    def Pass(self):
+        return ast.Pass(**self._posn_incr())
+
     @stackflush
     def Module(self, items):
         """Module AST root node"""
+        for item in items:
+            if not isinstance(item, ast.stmt):
+                msg = f"Module item {item} is not a statement"
+                raise BuildError(msg)
         return ast.Module(items, [], **self._posn(lineno=0))
             
     # Statement helpers.
 
     def end(self):
-        """End a While, If, Assign, or FunctionDef statement"""
+        """Evoke a While, If, Assign, FunctionDef or Call deferred method"""
         try:
             arg = self._stack.pop()
         except IndexError:
@@ -298,6 +349,7 @@ class TreeBuilder:
         func = self._stack.pop()
         args.reverse()
         self._stack.append(func(args))
+        return self
 
     def orelse(self):
         """Start an else block for an If statement"""

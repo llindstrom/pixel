@@ -39,6 +39,18 @@ class C_Iterators(BlitterFactory):
         b.end()
         b.FunctionDef()
 
+        # Doc string
+        stname = name_of(src_type)
+        dtname = name_of(dst_type)
+        fnname = name_of(fn)
+        trav = ", ".join(str(i) for i in loop_indices)
+        doc = (
+            f"{fnname}(s: {stname}, d: {dtname}) -> None\n\n"
+             "Blit s to d. This version uses C pointer arithmetic only\n"
+            f"to traverse over elements in index order [{trav}].")
+        b.Constant(doc)
+        b.Expr()
+
         # Array dimensions and starting points
         get_dims(b, ndims, 'src_type', 's')
         b.Name('sp')
@@ -170,9 +182,24 @@ def get_delta(build, index, prev_index, name):
     build.Sub()
     build.Assign1()
 
+def name_of(o):
+    try:
+        return o.__qualname__
+    except AttibuteError:
+        pass
+    try:
+        return o.__name__
+    except AttributeError:
+        pass
+    return repr(o)
+
 # This is what should be generated for (C_Iterators, [1, 0]),
 # with src_type, dst_type and fn as globals to the function.
 def do_blit(s, d):
+    """<fn>(s: <src_type>, d: <dst_type>) -> None
+
+Blit s to d. This version uses C pointer arithmetic only
+to traverse over elements in index order [1, 0]."""
     # Array dimensions and starting points
     d0, d1 = src_type.size_of(s)
     sp = src_type.pointer(s)

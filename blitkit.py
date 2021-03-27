@@ -19,12 +19,30 @@ class BlitterFactory:
         self.loop_indices = loop_indices
 
     def __call__(self, fn):
-        raise NotImplementedError("abstract base class")
+        fn_name = name_of(fn)
+        tree = self.make_tree(fn_name)
+        code = compile(tree, '<C_Iterator>', 'exec')
+        gbls = {'src_type': self.src_type, 'dst_type': self.dst_type,
+                f'{fn_name}_0': fn}
+        lcls = {}
+        exec(code, gbls, lcls)
+        blit = lcls[fn_name]
+        st_name = name_of(self.src_type)
+        dt_name = name_of(self.dst_type)
+        trav = ", ".join(str(i) for i in self.loop_indices)
+        blit.__doc__ = (
+            f"{fn_name}(s: {st_name}, d: {dt_name}) -> None\n\n"
+             "Blit s to d. This version uses C pointer arithmetic only\n"
+            f"to traverse over elements in index order [{trav}].")
+        blit.tree = tree
+        blit.wraps = fn
+        return blit
+
+    def make_tree(self, fn_name):
+        raise NotImplementedError("Abstract base function")
 
 class C_Iterators(BlitterFactory):
-    def __call__(self, fn):
-        src_type = self.src_type
-        dst_type = self.dst_type
+    def make_tree(self, fn_name):
         loop_indices = self.loop_indices
         ndims = len(loop_indices)
 
@@ -32,24 +50,12 @@ class C_Iterators(BlitterFactory):
             msg = "Only 2 dimensional arrays supported so far"
             raise NotImplementedError(msg)
         b = astkit.TreeBuilder()
-        b.identifier('do_blit')
+        b.identifier(fn_name)
         b.arguments()
         b.identifier('s')
         b.identifier('d')
         b.end()
         b.FunctionDef()
-
-        # Doc string
-        stname = name_of(src_type)
-        dtname = name_of(dst_type)
-        fnname = name_of(fn)
-        trav = ", ".join(str(i) for i in loop_indices)
-        doc = (
-            f"{fnname}(s: {stname}, d: {dtname}) -> None\n\n"
-             "Blit s to d. This version uses C pointer arithmetic only\n"
-            f"to traverse over elements in index order [{trav}].")
-        b.Constant(doc)
-        b.Expr()
 
         # Array dimensions and starting points
         get_dims(b, ndims, 'src_type', 's')
@@ -103,7 +109,7 @@ class C_Iterators(BlitterFactory):
         b.Name(f's{i}_end')
         b.Lt()
         b.While()
-        b.Name('fn')
+        b.Name(f'{fn_name}_0')
         b.Call()
         b.Name('src_type')
         b.identifier('Pixel')
@@ -137,15 +143,7 @@ class C_Iterators(BlitterFactory):
         b.end()  # outer loop
 
         b.end()  # function do_blit
-        tree = b.Module()
-
-        code = compile(tree, '<C_Iterator>', 'exec')
-        gbls = {'src_type': src_type, 'dst_type': dst_type, 'fn': fn}
-        lcls = {}
-        exec(code, gbls, lcls)
-        do_blit = lcls['do_blit']
-        do_blit.tree = tree
-        return do_blit
+        return b.Module()
 
 def get_dims(build, ndims, typ, name):
     build.Tuple()
@@ -193,10 +191,16 @@ def name_of(o):
         pass
     return repr(o)
 
-# This is what should be generated for (C_Iterators, [1, 0]),
-# with src_type, dst_type and fn as globals to the function.
+# This is what should be generated for
+#
+#     @blitter(Array, Surface)
+#     def do_blit(s, d):
+#         pass
+#     
+# Function globals are src_type, dst_type and fn_0.
+#
 def do_blit(s, d):
-    """<fn>(s: <src_type>, d: <dst_type>) -> None
+    """do_blit(s: Array, d: Surface) -> None
 
 Blit s to d. This version uses C pointer arithmetic only
 to traverse over elements in index order [1, 0]."""
@@ -217,7 +221,7 @@ to traverse over elements in index order [1, 0]."""
         # Loop over index 0...
         s0_end = sp + s_stride_0 * d0
         while sp < s0_end:
-            fn(src_type.Pixel(sp), dst_type.Pixel(dp))
+            do_blit_0(src_type.Pixel(sp), dst_type.Pixel(dp))
             sp += s_stride_0
             dp += d_stride_0
 

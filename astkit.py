@@ -5,14 +5,13 @@ Preliminary trial version
 Examples:
 
     >>> import ast, astkit as ak
-    >>> build = ak.TreeBuilder()
-    >>> module = (build
-    ...     .Name('prime').Constant(1).Assign1()
-    ...     .Name('n').Constant(1).Gt().While()
-    ...     .Name('prime').Name('n').IMult()
-    ...     .Name('n').Constant(1).ISub()
-    ...     .end()
-    ...     .Module())
+    >>> b = ak.TreeBuilder()
+    >>> b.Name('prime').Constant(1).Assign1()
+    >>> b.Name('n').Constant(1).Gt().While()
+    >>> b.Name('prime').Name('n').IMult()
+    >>> b.Name('n').Constant(1).ISub()
+    >>> b.end()
+    >>> module = b.Module()
     >>> print(ast.unparse(module))
     prime = 1
     while n > 1:
@@ -23,13 +22,12 @@ Examples:
     >>> exec(code, globals(), lcls)
     >>> print(lcls)
     {'n': 1, 'prime': 6}
-    >>> expr = (build
-    ...     .Name('a')
-    ...     .Constant(2)
-    ...     .Add()
-    ...     .Constant(3)
-    ...     .Mult()
-    ...     .Expression())
+    >>> b.Name('a')
+    >>> b.Constant(2)
+    >>> b.Add()
+    >>> b.Constant(3)
+    >>> b.Mult()
+    >>> expr = b.Expression()
     >>> print(ast.unparse(expr))
     (a + 2) * 3
     >>> code = compile(expr, '<addmult>', 'eval')
@@ -55,11 +53,11 @@ def stackop(method):
     """
     n_stack_args = method.__code__.co_argcount - 1  # assume 'self' arg.
     if n_stack_args == 0:
-        def wrapper(self):
+        def stackop0_wrapper(self):
             self._stack.append(method(self))
-            return self
+        wrapper = stackop0_wrapper
     else:
-        def wrapper(self):
+        def stackopn_wrapper(self):
             try:
                 items = [self._stack.pop() for i in range(n_stack_args)]
                 items.reverse()
@@ -67,9 +65,12 @@ def stackop(method):
                 msg = f"{method.__name__} requires {n_stack_args} stack items"
                 raise BuildError(msg)
             self._stack.append(method(self, *items))
-            return self
+        wrapper = stackopn_wrapper
 
+    # Update name and docs for introspection
+    wrapper.__name__ = f'stackop_{method.__name__}'
     wrapper.__doc__ = method.__doc__
+
     return wrapper
 
 def stackappend(method):
@@ -78,12 +79,14 @@ def stackappend(method):
     The method may accept call arguments. Its return value is pushed
     onto the stack.
     """
-    def wrapper(self, *args):
+    def stackappend_wrapper(self, *args):
         self._stack.append(method(self, *args))
-        return self
 
-    wrapper.__doc__ = method.__doc__
-    return wrapper
+    # Update name and docs for introspection
+    stackappend_wrapper.__name__ = f'stackappend_{method.__name__}'
+    stackappend_wrapper.__doc__ = method.__doc__
+
+    return stackappend_wrapper
 
 def stackflush(method):
     """Decorate an AST tree root node method
@@ -93,13 +96,16 @@ def stackflush(method):
     The method is expected to have two arguments, 'self' and the stack list.
     Its return value is passed back to the caller.
     """
-    def wrapper(self):
+    def stackflush_wrapper(self):
         items = list(self._stack)
         self.__init__()
         return method(self, items)
 
-    wrapper.__doc__ = method.__doc__
-    return wrapper
+    # Update name and docs for introspection
+    stackflush_wrapper.__name__ = f'stackflush_{method.__name__}'
+    stackflush_wrapper.__doc__ = method.__doc__
+
+    return stackflush_wrapper
 
 def deferred(method):
     """Decorate a method as a block start point
@@ -113,12 +119,16 @@ def deferred(method):
         @stackop
         def Something(....
     """
-    def wrapper(self, *args):
+    def deferred_wrapper(self, *args):
         retval = method(self, *args)
         self._stack.append(None)
         return retval
 
-    return wrapper
+    # Update name and docs for introspection
+    deferred_wrapper.__name__ = f'deferred_{method.__name__}'
+    deferred_wrapper.__doc__ = method.__doc__
+
+    return deferred_wrapper
 
 class TreeBuilder:
     """Limited Python AST builder
@@ -462,7 +472,6 @@ class TreeBuilder:
         func = self._stack.pop()
         args.reverse()
         self._stack.append(func(args))
-        return self
 
     def orelse(self):
         """Start an else block for an If statement"""

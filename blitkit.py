@@ -38,6 +38,8 @@ class C_Iterators(BlitterFactory):
         b.identifier('d')
         b.end()
         b.FunctionDef()
+
+        # Array dimensions and starting points
         get_dims(b, ndims, 'src_type', 's')
         b.Name('sp')
         b.Name('src_type')
@@ -55,24 +57,16 @@ class C_Iterators(BlitterFactory):
         b.Name('d')
         b.end()
         b.Assign1()
+
+        # Pointer increments
         get_strides(b, ndims, 'src_type', 's')
         get_strides(b, ndims, 'dst_type', 'd')
-        i = loop_indices[0]
-        b.Name('s_end')
-        b.Name('sp')
-        b.Name(f'd{i}')
-        b.Name(f's_stride_{i}')
-        b.Mult()
-        b.Add()
-        b.Assign1()
         get_delta(b, loop_indices[0], loop_indices[1], 's')
         get_delta(b, loop_indices[0], loop_indices[1], 'd')
-        b.Name('sp')
-        b.Name('s_end')
-        b.Lt()
-        b.While()
-        i = loop_indices[1]
-        b.Name(f'sd{i}_end')
+
+        # Loop over outer index
+        i = loop_indices[0]
+        b.Name(f's{i}_end')
         b.Name('sp')
         b.Name(f's_stride_{i}')
         b.Name(f'd{i}')
@@ -80,7 +74,21 @@ class C_Iterators(BlitterFactory):
         b.Add()
         b.Assign1()
         b.Name('sp')
-        b.Name(f'sd{i}_end')
+        b.Name(f's{i}_end')
+        b.Lt()
+        b.While()
+
+        # Loop over inner index
+        i = loop_indices[1]
+        b.Name(f's{i}_end')
+        b.Name('sp')
+        b.Name(f's_stride_{i}')
+        b.Name(f'd{i}')
+        b.Mult()
+        b.Add()
+        b.Assign1()
+        b.Name('sp')
+        b.Name(f's{i}_end')
         b.Lt()
         b.While()
         b.Name('fn')
@@ -105,7 +113,8 @@ class C_Iterators(BlitterFactory):
         b.Name('dp')
         b.Name(f'd_stride_{i}')
         b.IAdd()
-        b.end()
+        b.end()  # inner loop
+
         i = loop_indices[0]
         b.Name('sp')
         b.Name(f's_delta_{i}')
@@ -113,11 +122,12 @@ class C_Iterators(BlitterFactory):
         b.Name('dp')
         b.Name(f'd_delta_{i}')
         b.IAdd()
-        b.end()
-        b.end()
+        b.end()  # outer loop
+
+        b.end()  # function do_blit
         tree = b.Module()
 
-        code = compile(tree, '<BlitFactory>', 'exec')
+        code = compile(tree, '<C_Iterator>', 'exec')
         gbls = {'src_type': src_type, 'dst_type': dst_type, 'fn': fn}
         lcls = {}
         exec(code, gbls, lcls)
@@ -163,21 +173,23 @@ def get_delta(build, index, prev_index, name):
 # This is what should be generated for (C_Iterators, [1, 0]),
 # with src_type, dst_type and fn as globals to the function.
 def do_blit(s, d):
+    # Array dimensions and starting points
     d0, d1 = src_type.size_of(s)
     sp = src_type.pointer(s)
     dp = dst_type.pointer(d)
+
+    # Pointer increments
     s_stride_0, s_stride_1 = src_type.strides(s)
     d_stride_0, d_stride_1 = dst_type.strides(d)
-
-    # Loop over index 1...
-    s_end = sp + d1 * s_stride_1
     s_delta_1 = s_stride_1 - s_stride_0 * d0
     d_delta_1 = d_stride_1 - d_stride_0 * d0
-    while sp < s_end:
 
+    # Loop over index 1...
+    s1_end = sp + s_stride_1 * d1
+    while sp < s1_end:
         # Loop over index 0...
-        sd0_end = sp + s_stride_0 * d0
-        while sp < sd0_end:
+        s0_end = sp + s_stride_0 * d0
+        while sp < s0_end:
             fn(src_type.Pixel(sp), dst_type.Pixel(dp))
             sp += s_stride_0
             dp += d_stride_0

@@ -59,7 +59,7 @@ class C_Iterators(BlitterFactory):
 
         # Array dimensions and starting points
         get_dims(b, ndims, 'src_type', 's')
-        b.Name('sp')
+        b.Name('sp_0')
         b.Name('src_type')
         b.identifier('pointer')
         b.Attribute()
@@ -67,7 +67,7 @@ class C_Iterators(BlitterFactory):
         b.Name('s')
         b.end()
         b.Assign1()
-        b.Name('dp')
+        b.Name('dp_0')
         b.Name('dst_type')
         b.identifier('pointer')
         b.Attribute()
@@ -84,29 +84,29 @@ class C_Iterators(BlitterFactory):
 
         # Loop over outer index
         i = loop_indices[0]
-        b.Name(f's{i}_end')
-        b.Name('sp')
+        b.Name(f's_end_{i}')
+        b.Name('sp_0')
         b.Name(f's_stride_{i}')
-        b.Name(f'd{i}')
+        b.Name(f'd_{i}')
         b.Mult()
         b.Add()
         b.Assign1()
-        b.Name('sp')
-        b.Name(f's{i}_end')
+        b.Name('sp_0')
+        b.Name(f's_end_{i}')
         b.Lt()
         b.While()
 
         # Loop over inner index
         i = loop_indices[1]
-        b.Name(f's{i}_end')
-        b.Name('sp')
+        b.Name(f's_end_{i}')
+        b.Name('sp_0')
         b.Name(f's_stride_{i}')
-        b.Name(f'd{i}')
+        b.Name(f'd_{i}')
         b.Mult()
         b.Add()
         b.Assign1()
-        b.Name('sp')
-        b.Name(f's{i}_end')
+        b.Name('sp_0')
+        b.Name(f's_end_{i}')
         b.Lt()
         b.While()
         b.Name(f'{fn_name}_0')
@@ -115,29 +115,29 @@ class C_Iterators(BlitterFactory):
         b.identifier('Pixel')
         b.Attribute()
         b.Call()
-        b.Name('sp')
+        b.Name('sp_0')
         b.end()
         b.Name('dst_type')
         b.identifier('Pixel')
         b.Attribute()
         b.Call()
-        b.Name('dp')
+        b.Name('dp_0')
         b.end()
         b.end()
         b.Expr()
-        b.Name('sp')
+        b.Name('sp_0')
         b.Name(f's_stride_{i}')
         b.IAdd()
-        b.Name('dp')
+        b.Name('dp_0')
         b.Name(f'd_stride_{i}')
         b.IAdd()
         b.end()  # inner loop
 
         i = loop_indices[0]
-        b.Name('sp')
+        b.Name('sp_0')
         b.Name(f's_delta_{i}')
         b.IAdd()
-        b.Name('dp')
+        b.Name('dp_0')
         b.Name(f'd_delta_{i}')
         b.IAdd()
         b.end()  # outer loop
@@ -148,7 +148,7 @@ class C_Iterators(BlitterFactory):
 def get_dims(build, ndims, typ, name):
     build.Tuple()
     for i in range(ndims):
-        build.Name(f'd{i}')
+        build.Name(f'd_{i}')
     build.end()
     build.Name(typ)
     build.identifier('size_of')
@@ -175,7 +175,7 @@ def get_delta(build, index, prev_index, name):
     build.Name(f'{name}_delta_{index}')
     build.Name(f'{name}_stride_{index}')
     build.Name(f'{name}_stride_{prev_index}')
-    build.Name(f'd{prev_index}')
+    build.Name(f'd_{prev_index}')
     build.Mult()
     build.Sub()
     build.Assign1()
@@ -205,27 +205,27 @@ def do_blit(s, d):
 Blit s to d. This version uses C pointer arithmetic only
 to traverse over elements in index order [1, 0]."""
     # Array dimensions and starting points
-    d0, d1 = src_type.size_of(s)
-    sp = src_type.pointer(s)
-    dp = dst_type.pointer(d)
+    d_0, d_1 = src_type.size_of(s)
+    sp_0 = src_type.pointer(s)
+    dp_0 = dst_type.pointer(d)
 
     # Pointer increments
     s_stride_0, s_stride_1 = src_type.strides(s)
     d_stride_0, d_stride_1 = dst_type.strides(d)
-    s_delta_1 = s_stride_1 - s_stride_0 * d0
-    d_delta_1 = d_stride_1 - d_stride_0 * d0
+    s_delta_1 = s_stride_1 - s_stride_0 * d_0
+    d_delta_1 = d_stride_1 - d_stride_0 * d_0
 
     # Loop over index 1...
-    s1_end = sp + s_stride_1 * d1
-    while sp < s1_end:
+    s_end_1 = sp_0 + s_stride_1 * d_1
+    while sp_0 < s_end_1:
         # Loop over index 0...
-        s0_end = sp + s_stride_0 * d0
-        while sp < s0_end:
-            do_blit_0(src_type.Pixel(sp), dst_type.Pixel(dp))
-            sp += s_stride_0
-            dp += d_stride_0
+        s_end_0 = sp_0 + s_stride_0 * d_0
+        while sp_0 < s_end_0:
+            do_blit_0(src_type.Pixel(sp_0), dst_type.Pixel(dp_0))
+            sp_0 += s_stride_0
+            dp_0 += d_stride_0
 
-        sp += s_delta_1
-        dp += d_delta_1
+        sp_0 += s_delta_1
+        dp_0 += d_delta_1
 
 blitter = Blitter(C_Iterators, [1, 0])

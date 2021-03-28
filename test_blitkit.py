@@ -1,8 +1,7 @@
 import blitkit
-import pixels
 import numpy
 
-@blitkit.blitter(pixels.PixelArray, pixels.PixelArray)
+@blitkit.blitter(blitkit.Array2, blitkit.Array2)
 def foo(s, d):
     d.pixel = s
 

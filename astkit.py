@@ -471,7 +471,9 @@ class TreeBuilder:
                 raise BuildError("No corresponding block statement found")
         func = self._stack.pop()
         args.reverse()
-        self._stack.append(func(args))
+        node = func(args)
+        if node is not None:
+            self._stack.append(node)
 
     def orelse(self):
         """Start an else block for an If statement"""

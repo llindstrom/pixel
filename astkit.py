@@ -44,92 +44,6 @@ import types
 class BuildError(Exception):
     pass
 
-def stackop(method):
-    """Decorate a method that replaces 1 or more items on the stack with 1 item
-
-    The number of items popped off the stack are enough to fill the
-    method's non-self arguments. The method's return value is pushed
-    onto the stack.
-    """
-    n_stack_args = method.__code__.co_argcount - 1  # assume 'self' arg.
-    if n_stack_args == 0:
-        def stackop0_wrapper(self):
-            self._stack.append(method(self))
-        wrapper = stackop0_wrapper
-    else:
-        def stackopn_wrapper(self):
-            try:
-                items = [self._stack.pop() for i in range(n_stack_args)]
-                items.reverse()
-            except IndexError:
-                msg = f"{method.__name__} requires {n_stack_args} stack items"
-                raise BuildError(msg)
-            self._stack.append(method(self, *items))
-        wrapper = stackopn_wrapper
-
-    # Update name and docs for introspection
-    wrapper.__name__ = f'stackop_{method.__name__}'
-    wrapper.__doc__ = method.__doc__
-
-    return wrapper
-
-def stackappend(method):
-    """Decorate a method that adds 1 item to the stack
-
-    The method may accept call arguments. Its return value is pushed
-    onto the stack.
-    """
-    def stackappend_wrapper(self, *args):
-        self._stack.append(method(self, *args))
-
-    # Update name and docs for introspection
-    stackappend_wrapper.__name__ = f'stackappend_{method.__name__}'
-    stackappend_wrapper.__doc__ = method.__doc__
-
-    return stackappend_wrapper
-
-def stackflush(method):
-    """Decorate an AST tree root node method
-
-    Remove all arguments from the stack and pass to the method as a
-    list with the last item off the stack the first item in the list.
-    The method is expected to have two arguments, 'self' and the stack list.
-    Its return value is passed back to the caller.
-    """
-    def stackflush_wrapper(self):
-        items = list(self._stack)
-        self.__init__()
-        return method(self, items)
-
-    # Update name and docs for introspection
-    stackflush_wrapper.__name__ = f'stackflush_{method.__name__}'
-    stackflush_wrapper.__doc__ = method.__doc__
-
-    return stackflush_wrapper
-
-def deferred(method):
-    """Decorate a method as a block start point
-
-    Places None on the stack as a stack start marker. This decorator
-    must precede other decorators.
-
-    eg:
-
-        @deferred
-        @stackop
-        def Something(....
-    """
-    def deferred_wrapper(self, *args):
-        retval = method(self, *args)
-        self._stack.append(None)
-        return retval
-
-    # Update name and docs for introspection
-    deferred_wrapper.__name__ = f'deferred_{method.__name__}'
-    deferred_wrapper.__doc__ = method.__doc__
-
-    return deferred_wrapper
-
 class TreeBuilder:
     """Limited Python AST builder
 
@@ -233,7 +147,6 @@ class TreeBuilder:
         """Constant AST node"""
         self.push(ast.Constant(value))
 
-    @stackappend
     def Name(self, id):
         """Name AST node
 
@@ -241,70 +154,70 @@ class TreeBuilder:
         """
         if not isinstance(id, str):
             raise BuildError("Name argument must be a string")
-        return ast.Name(id, self._load, **self._posn())
+        self.push(ast.Name(id, self._load))
 
     def Add(self):
-        left, right = self.pop_list(2)
         """Binary addition operation"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Add arguments must be expressions")
         self.push(ast.BinOp(left, self._add, right))
 
-    @stackop
-    def Sub(self, left, right):
+    def Sub(self):
         """Binary subtraction operation"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Sub arguments must be expressions")
-        return ast.BinOp(left, self._sub, right, **self._posn())
+        self.push(ast.BinOp(left, self._sub, right))
 
-    @stackop
-    def Mult(self, left, right):
+    def Mult(self):
         """Binary multiplication operation"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Mult arguments must be expressions")
-        return ast.BinOp(left, self._mult, right, **self._posn())
+        self.push(ast.BinOp(left, self._mult, right))
 
-    @stackop
-    def Eq(self, left, right):
+    def Eq(self):
         """Equality comparison (binary operation only)"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Eq arguments must be expressions")
-        return ast.Compare(left, [self._eq], [right], **self._posn())
+        self.push(ast.Compare(left, [self._eq], [right]))
 
-    @stackop
-    def NotEq(self, left, right):
+    def NotEq(self):
         """Inequality comparison (binary operation only)"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("NotEq arguments must be expressions")
-        return ast.Compare(left, [self._noteq], [right], **self._posn())
+        self.push(ast.Compare(left, [self._noteq], [right]))
 
-    @stackop
-    def Lt(self, left, right):
+    def Lt(self):
         """Less than comparison (binary operation only)"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Lt arguments must be expressions")
-        return ast.Compare(left, [self._lt], [right], **self._posn())
+        self.push(ast.Compare(left, [self._lt], [right]))
 
-    @stackop
-    def LtE(self, left, right):
+    def LtE(self):
         """Less that or equal comparison (binary operation only)"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("LtE arguments must be expressions")
-        return ast.Compare(left, [self._lte], [right], **self._posn())
+        self.push(ast.Compare(left, [self._lte], [right]))
 
-    @stackop
-    def Gt(self, left, right):
+    def Gt(self):
         """Greater than comparison (binary operation only)"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Gt arguments must be expressions")
-        return ast.Compare(left, [self._gt], [right], **self._posn())
+        self.push(ast.Compare(left, [self._gt], [right]))
 
-    @stackop
-    def GtE(self, left, right):
+    def GtE(self):
         """Greater that or equal comparison (binary operation only)"""
+        left, right = self.pop_list(2)
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("GtE arguments must be expressions")
-        return ast.Compare(left, [self._gte], [right], **self._posn())
+        self.push(ast.Compare(left, [self._gte], [right]))
 
     def Attribute(self, attr):
         """Attribute access
@@ -325,7 +238,7 @@ class TreeBuilder:
                 if not isinstance(e, ast.expr):
                     msg = f"Tuple element {e} not an expression"
                     raise BuildError(msg)
-            return ast.Tuple(elements, self._load, **self._posn())
+            self.push(ast.Tuple(elements, self._load))
 
         self.defer(do_tuple)
 
@@ -337,21 +250,18 @@ class TreeBuilder:
                 if not isinstance(item, ast.expr):
                     msg = f"Function argument {item} is not an expressions"
                     raise BuildError(msg)
-            return ast.Call(function, arguments, [], **self._posn())
+            self.push(ast.Call(function, arguments, []))
 
         if not isinstance(function, ast.expr):
             raise BuildError("The Call target must be an expression")
         self.defer(do_call)
 
-    @stackappend
     def identifier(self, id_str):
         """Add an identifier string to the stack"""
         if not isinstance(id_str, str):
             raise BuildError("identifier argument must be a string")
-        return id_str
+        self.push(id_str)
 
-    @deferred
-    @stackop
     def arguments(self):
         """Function call arguments"""
         def do_arguments(args):
@@ -361,11 +271,11 @@ class TreeBuilder:
                     msg = "arguments only allows identifiers in argument list"
                     raise BuildError(msg)
                 arglist.append(ast.arg(a, **self._posn()))
-            return ast.arguments([], arglist,
-                                 vararg=None, kwonlyargs=[], kwarg=None,
-                                 kw_defaults=[], defaults=[], **self._posn())
+            self.push(ast.arguments([], arglist, vararg=None,
+                                    kwonlyargs=[], kwarg=None,
+                                    kw_defaults=[], defaults=[]))
 
-        return do_arguments
+        self.defer(do_arguments)
 
     # Methods beyond this point are AST statements.
 
@@ -379,35 +289,33 @@ class TreeBuilder:
             raise BuildError(msg)
         self.push(ast.Assign([target], value))
 
-    @stackop
-    def IAdd(self, target, value):
+    def IAdd(self):
         """Inplace addition"""
+        target, value = self.pop_list(2)
         self._check_assignable(target, 'IAdd')
         if not isinstance(value, ast.expr):
             raise BuildError("IAdd value must be an expression")
         set_ctx(target, self._store)
-        return ast.AugAssign(target, self._add, value, **self._posn_incr())
+        self.push(ast.AugAssign(target, self._add, value))
 
-    @stackop
-    def ISub(self, target, value):
+    def ISub(self):
         """Inplace subtraction"""
+        target, value = self.pop_list(2)
         self._check_assignable(target, 'ISub')
         if not isinstance(value, ast.expr):
             raise BuildError("ISub value must be an expression")
         set_ctx(target, self._store)
-        return ast.AugAssign(target, self._sub, value, **self._posn_incr())
+        self.push(ast.AugAssign(target, self._sub, value))
 
-    @stackop
-    def IMult(self, target, value):
+    def IMult(self):
         """Inplace multipilication"""
+        target, value = self.pop_list(2)
         self._check_assignable(target, 'IMult')
         if not isinstance(value, ast.expr):
             raise BuildError("IMult value must be an expression")
         set_ctx(target, self._store)
-        return ast.AugAssign(target, self._mult, value, **self._posn_incr())
+        self.push(ast.AugAssign(target, self._mult, value))
 
-    @deferred
-    @stackop
     def Assign(self):
         """Multi target assignment"""
         def do_assign(args):
@@ -424,12 +332,11 @@ class TreeBuilder:
                 set_ctx(t, self._store)
             return ast.Assign(targets, value, **self._posn_incr())
 
-        return do_assign
+        self.defer(do_assign)
 
-    @deferred
-    @stackop
-    def If(self, test):
+    def If(self):
         """If statement"""
+        test = self.pop()
         def do_if(body):
             if not body:
                 msg = "If statement must have at least 1 body statement"
@@ -442,12 +349,11 @@ class TreeBuilder:
 
         lineno = self._lineno
         self._lineno += 1
-        return do_if
+        self.defer(do_if)
 
-    @deferred
-    @stackop
-    def While(self, test):
+    def While(self):
         """While statement"""
+        test = self.pop()
         def do_while(body):
             if not body:
                 msg = "While statement must have at least 1 body statement"
@@ -456,57 +362,57 @@ class TreeBuilder:
                 if not isinstance(item, ast.stmt):
                     msg = f"While statement body item {item} not a statement"
                     raise BuildError(msg)
-            return ast.While(test, body, [], **self._posn(lineno=lineno))
+            self.push(ast.While(test, body, []), lineno=lineno)
 
         if not isinstance(test, ast.expr):
             raise BuildError("The While test must be an expression")
         lineno = self._lineno
         self._lineno += 1
-        return do_while
+        self.defer(do_while)
 
-    @stackop
-    def Expr(self, expression):
+    def Expr(self):
         """Makes an expression a statement (e.g. a function call)"""
+        expression = self.pop()
         if not isinstance(expression, ast.expr):
             raise BuildError("The Expr argument must be an expression")
-        return ast.Expr(expression, **self._posn_incr())
+        self.push(ast.Expr(expression))
 
-    @stackappend
     def Pass(self):
-        return ast.Pass(**self._posn_incr())
+        """Pass instruction"""
+        self.push(ast.Pass())
 
-    @deferred
-    @stackop
-    def FunctionDef(self, name, args):
+    def FunctionDef(self):
         """Function definition"""
+        name, args = self.pop_list(2)
         def do_functiondef(body):
             for item in body:
                 if not isinstance(item, ast.stmt):
                     msg = "Only statements allowed in FunctionDef body"
                     raise BuildError(msg)
-            FD = ast.FunctionDef
-            return FD(name, args, body, decorator_list=[],
-                      **self._posn(lineno=lineno))
+            fd = ast.FunctionDef(name, args, body, decorator_list=[])
+            self.push(fd, lineno=lineno)
 
         lineno = self._lineno
         self._lineno += 1
-        return do_functiondef
+        self.defer(do_functiondef)
 
-    @stackop
-    def Return(self, value):
+    def Return(self):
         """Return value"""
+        value = self.pop()
         if not isinstance(value, ast.expr):
             raise BuildError("Return expects an expression")
-        return ast.Return(value, **self._posn_incr())
+        self.push(ast.Return(value))
 
-    @stackflush
-    def Module(self, items):
+    def Module(self):
         """Module AST root node"""
+        items = self.pop_list()
         for item in items:
             if not isinstance(item, ast.stmt):
                 msg = f"Module item {item} is not a statement"
                 raise BuildError(msg)
-        return ast.Module(items, [], **self._posn(lineno=0))
+        module = ast.Module(items, [], **self._posn(lineno=0))
+        self.__init__()
+        return module
 
     # Statement helpers.
 
@@ -525,9 +431,7 @@ class TreeBuilder:
                 raise BuildError("No corresponding block statement found")
         func = self._stack.pop()
         args.reverse()
-        node = func(args)
-        if node is not None:
-            self._stack.append(node)
+        return func(args)
 
     def orelse(self):
         """Start an else block for an If statement"""
@@ -540,6 +444,7 @@ class TreeBuilder:
     # General helpers
 
     def _posn(self, lineno=None, col_offset=None):
+        """Return a keyword argument dictionary for AST position"""
         if lineno is None:
             lineno = self._lineno
         if col_offset is None:
@@ -550,6 +455,7 @@ class TreeBuilder:
                 'end_col_offset': col_offset}
 
     def _posn_incr(self):
+        """Return AST position keywords and increment line number"""
         posn = self._posn()
         self._lineno += 1
         return posn

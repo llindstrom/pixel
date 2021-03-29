@@ -281,7 +281,7 @@ class TreeBuilder:
 
     def Assign1(self):
         """Single target assignment"""
-        target, value = self.pop_list(2)
+        value, target = self.pop_list(2)
         self._check_assignable(target, 'Assign1')
         set_ctx(target, self._store)
         if not isinstance(value, ast.expr):
@@ -291,7 +291,7 @@ class TreeBuilder:
 
     def IAdd(self):
         """Inplace addition"""
-        target, value = self.pop_list(2)
+        value, target = self.pop_list(2)
         self._check_assignable(target, 'IAdd')
         if not isinstance(value, ast.expr):
             raise BuildError("IAdd value must be an expression")
@@ -300,7 +300,7 @@ class TreeBuilder:
 
     def ISub(self):
         """Inplace subtraction"""
-        target, value = self.pop_list(2)
+        value, target = self.pop_list(2)
         self._check_assignable(target, 'ISub')
         if not isinstance(value, ast.expr):
             raise BuildError("ISub value must be an expression")
@@ -309,7 +309,7 @@ class TreeBuilder:
 
     def IMult(self):
         """Inplace multipilication"""
-        target, value = self.pop_list(2)
+        value, target = self.pop_list(2)
         self._check_assignable(target, 'IMult')
         if not isinstance(value, ast.expr):
             raise BuildError("IMult value must be an expression")

@@ -70,11 +70,11 @@ class C_Iterators(BlitterFactory):
 
         # Array dimensions and starting points
         get_dims(b, ndims, arg_types[0], 'arg_1')
-        b.Name('parg_1')
         arg_types[0].pointer(b, 'arg_1')
+        b.Name('parg_1')
         b.Assign1()
-        b.Name('parg_2')
         arg_types[1].pointer(b, 'arg_2')
+        b.Name('parg_2')
         b.Assign1()
 
         # Pointer increments
@@ -85,12 +85,12 @@ class C_Iterators(BlitterFactory):
 
         # Loop over outer index
         i = loop_indices[0]
-        b.Name(f'arg_1_end_{i}')
         b.Name('parg_1')
         b.Name(f'arg_1_stride_{i}')
         b.Name(f'dim_{i}')
         b.Mult()
         b.Add()
+        b.Name(f'arg_1_end_{i}')
         b.Assign1()
         b.Name('parg_1')
         b.Name(f'arg_1_end_{i}')
@@ -99,12 +99,12 @@ class C_Iterators(BlitterFactory):
 
         # Loop over inner index
         i = loop_indices[1]
-        b.Name(f'arg_1_end_{i}')
         b.Name('parg_1')
         b.Name(f'arg_1_stride_{i}')
         b.Name(f'dim_{i}')
         b.Mult()
         b.Add()
+        b.Name(f'arg_1_end_{i}')
         b.Assign1()
         b.Name('parg_1')
         b.Name(f'arg_1_end_{i}')
@@ -116,20 +116,20 @@ class C_Iterators(BlitterFactory):
         arg_types[1].Pixel(b, 'parg_2')
         b.end()
         b.Expr()
-        b.Name('parg_1')
         b.Name(f'arg_1_stride_{i}')
+        b.Name('parg_1')
         b.IAdd()
-        b.Name('parg_2')
         b.Name(f'arg_2_stride_{i}')
+        b.Name('parg_2')
         b.IAdd()
         b.end()  # inner loop
 
         i = loop_indices[0]
-        b.Name('parg_1')
         b.Name(f'arg_1_delta_{i}')
+        b.Name('parg_1')
         b.IAdd()
-        b.Name('parg_2')
         b.Name(f'arg_2_delta_{i}')
+        b.Name('parg_2')
         b.IAdd()
         b.end()  # outer loop
 
@@ -137,28 +137,28 @@ class C_Iterators(BlitterFactory):
         return b.Module()
 
 def get_dims(build, ndims, typ, name):
+    typ.size_of(build, name)
     build.Tuple()
     for i in range(ndims):
         build.Name(f'dim_{i}')
     build.end()
-    typ.size_of(build, name)
     build.Assign1()
 
 def get_strides(build, ndims, typ, name):
+    typ.strides(build, name)
     build.Tuple()
     for i in range(ndims):
         build.Name(f'{name}_stride_{i}')
     build.end()
-    typ.strides(build, name)
     build.Assign1()
 
 def get_delta(build, index, prev_index, name):
-    build.Name(f'{name}_delta_{index}')
     build.Name(f'{name}_stride_{index}')
     build.Name(f'{name}_stride_{prev_index}')
     build.Name(f'dim_{prev_index}')
     build.Mult()
     build.Sub()
+    build.Name(f'{name}_delta_{index}')
     build.Assign1()
 
 def name_of(o):

@@ -89,6 +89,29 @@ class TestBasics(unittest.TestCase):
         self.assertIsInstance(lcls['foo'], types.FunctionType)
         self.assertEqual(lcls['y'], 24)
 
+    def test_defer(self):
+        was_called = False
+        def test(args):
+            nonlocal was_called
+            self.assertEqual(args, ['a', 'b'])
+            was_called = True
+        b = ak.TreeBuilder()
+        b.defer(test)
+        b.identifier('a')
+        b.identifier('b')
+        b.end()
+        self.assertTrue(was_called)
+        self.assertFalse(b._stack)
+
+    def test_attribute(self):
+        b = ak.TreeBuilder()
+        b.Name('int')
+        b.Attribute('__name__')
+        expr = b.Expression()
+        self.assertEqual(ast.unparse(expr), "int.__name__")
+        code = compile(expr, '<ast>', 'eval')
+        self.assertEqual(eval(code), int.__name__)
+
 if __name__ == '__main__':
     unittest.main()
 

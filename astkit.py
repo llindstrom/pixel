@@ -157,9 +157,67 @@ class TreeBuilder:
         # the line number of the next instruction
         self._lineno = 1
 
-    @stackflush
-    def Expression(self, items):
+    def push(self, arg, lineno=None, col_offset=None):
+        """Place one arguemnt onto the stack
+        
+        Position information is added, when needed, and the line number
+        is incremented for statements.
+        """
+        if isinstance(arg, ast.AST):
+            if lineno is None:
+                lineno = self._lineno
+            if col_offset is None:
+                col_offset = 0
+            arg.lineno = lineno
+            arg.col_offset = col_offset
+            arg.end_lineno = lineno
+            arg.end_col_offset = col_offset
+            if isinstance(arg, ast.stmt) and lineno == self._lineno:
+                self._lineno += 1
+        self._stack.append(arg)
+
+    def push_list(self, args):
+        """Place a list of items onto the stack in the order given"""
+        for a in args:
+            self.push(a)
+
+    def pop(self):
+        """Remove and return one item from the stack"""
+        try:
+            return self._stack.pop()
+        except IndexError:
+            raise BuildError("One stack item required but the stack is empty")
+
+    def pop_list(self, n_stack_args=None):
+        """Remove and return a list of items from the stack
+
+        The last item popped is the first item of the list. Optional argument
+        n_stack_args gives the number of items to return. If omitted then
+        the entire stack is returned.
+        """
+        if n_stack_args is None:
+            items = list(self._stack)
+            self._stack.clear()
+        else:
+            try:
+                items = [self._stack.pop() for i in range(n_stack_args)]
+                items.reverse()
+            except IndexError:
+                msg = f"Too few stack items: {n_stack_args} required"
+                raise BuildError(msg)
+        return items
+
+    def defer(self, fn):
+        """Place a deferred function on the stack
+
+        The function will by method end() with the list of items between
+        the defered function and stack top.
+        """
+        self.push_list([fn, None])
+
+    def Expression(self):
         """Expression AST root node"""
+        items = self.pop_list()
         try:
             item = items[0]
         except IndexError:
@@ -167,14 +225,13 @@ class TreeBuilder:
             raise BuildError(msg)
         if len(items) > 1:
             nitems = len(items)
-            msg = f"Expression expects only 1 stack item: found {nitems} items"
+            msg = f"Expression expects only 1 stack item: {nitems} items found"
             raise BuildError(msg)
         return ast.Expression(items[0], **self._posn(lineno=0))
 
-    @stackappend
     def Constant(self, value):
         """Constant AST node"""
-        return ast.Constant(value, **self._posn())
+        self.push(ast.Constant(value))
 
     @stackappend
     def Name(self, id):
@@ -186,12 +243,12 @@ class TreeBuilder:
             raise BuildError("Name argument must be a string")
         return ast.Name(id, self._load, **self._posn())
 
-    @stackop
-    def Add(self, left, right):
+    def Add(self):
+        left, right = self.pop_list(2)
         """Binary addition operation"""
         if not (isinstance(left, ast.expr) or isinstance(right, ast.expr)):
             raise BuildError("Add arguments must be expressions")
-        return ast.BinOp(left, self._add, right, **self._posn())
+        self.push(ast.BinOp(left, self._add, right))
 
     @stackop
     def Sub(self, left, right):
@@ -249,20 +306,18 @@ class TreeBuilder:
             raise BuildError("GtE arguments must be expressions")
         return ast.Compare(left, [self._gte], [right], **self._posn())
 
-    @stackop
-    def Attribute(self, value, attr):
+    def Attribute(self, attr):
         """Attribute access
 
         Initially assumed to be an attribute get.
         """
+        value = self.pop()
         if not isinstance(attr, str):
             raise BuildError("Attribute identifier must be a string")
         if not isinstance(value, ast.expr):
             raise BuildError("Attribute value must be an expression")
-        return ast.Attribute(value, attr, self._load, **self._posn())
+        self.push(ast.Attribute(value, attr, self._load))
 
-    @deferred
-    @stackop
     def Tuple(self):
         """Tuple literal"""
         def do_tuple(elements):
@@ -272,12 +327,11 @@ class TreeBuilder:
                     raise BuildError(msg)
             return ast.Tuple(elements, self._load, **self._posn())
 
-        return do_tuple
+        self.defer(do_tuple)
 
-    @deferred
-    @stackop
-    def Call(self, function):
+    def Call(self):
         """Function Call expression"""
+        function = self.pop()
         def do_call(arguments):
             for item in arguments:
                 if not isinstance(item, ast.expr):
@@ -287,7 +341,7 @@ class TreeBuilder:
 
         if not isinstance(function, ast.expr):
             raise BuildError("The Call target must be an expression")
-        return do_call
+        self.defer(do_call)
 
     @stackappend
     def identifier(self, id_str):
@@ -315,15 +369,15 @@ class TreeBuilder:
 
     # Methods beyond this point are AST statements.
 
-    @stackop
-    def Assign1(self, target, value):
+    def Assign1(self):
         """Single target assignment"""
+        target, value = self.pop_list(2)
         self._check_assignable(target, 'Assign1')
         set_ctx(target, self._store)
         if not isinstance(value, ast.expr):
             msg = "Assign1 value must be expressions"
             raise BuildError(msg)
-        return ast.Assign([target], value, **self._posn_incr())
+        self.push(ast.Assign([target], value))
 
     @stackop
     def IAdd(self, target, value):

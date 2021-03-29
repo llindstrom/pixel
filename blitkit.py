@@ -183,8 +183,7 @@ class Surface:
     @staticmethod
     def size_of(build, surf_name):
         build.Name(surf_name)
-        build.identifier('get_size')
-        build.Attribute()
+        build.Attribute('get_size')
         build.Call()
         build.end()
 
@@ -192,13 +191,11 @@ class Surface:
     def strides(build, surf_name):
         build.Tuple()
         build.Name(surf_name)
-        build.identifier('get_bytesize')
-        build.Attribute()
+        build.Attribute('get_bytesize')
         build.Call()
         build.end()
         build.Name(surf_name)
-        build.identifier('get_pitch')
-        build.Attribute()
+        build.Attribute('get_pitch')
         build.Call()
         build.end()
         build.end()
@@ -209,8 +206,7 @@ class Surface:
         build.Call()
         build.Name(surf_name)
         build.Name(surf_name)
-        build.identifier('_pixels_address')
-        build.Attribute()
+        build.Attribute('_pixels_address')
         build.Name('c_char_0')
         build.end()
 
@@ -225,14 +221,12 @@ class Array2:
     @staticmethod
     def size_of(build, array_name):
         build.Name(array_name)
-        build.identifier('shape')
-        build.Attribute()
+        build.Attribute('shape')
 
     @staticmethod
     def strides(build, array_name):
         build.Name(array_name)
-        build.identifier('strides')
-        build.Attribute()
+        build.Attribute('strides')
 
     @staticmethod
     def pointer(build, array_name):
@@ -240,15 +234,12 @@ class Array2:
         build.Call()
         build.Name(array_name)
         build.Name(array_name)
-        build.identifier('__array_interface__')
-        build.Attribute()
-        build.identifier('__getitem__')
-        build.Attribute()
+        build.Attribute('__array_interface__')
+        build.Attribute('__getitem__')
         build.Call()
         build.Constant('data')
         build.end()
-        build.identifier('__getitem__')
-        build.Attribute()
+        build.Attribute('__getitem__')
         build.Call()
         build.Constant(0)
         build.end()

@@ -270,16 +270,12 @@ class Array2:
         build.Name('pixels.Pointer')
         build.Call()
         build.Name(array_name)
+        build.Constant(0)
+        build.Constant('data')
         build.Name(array_name)
         build.Attribute('__array_interface__')
-        build.Attribute('__getitem__')
-        build.Call()
-        build.Constant('data')
-        build.end()
-        build.Attribute('__getitem__')
-        build.Call()
-        build.Constant(0)
-        build.end()
+        build.Subscript()
+        build.Subscript()
         build.Name('ctypes.c_char')
         build.end()
 
@@ -315,7 +311,7 @@ import blitkit, pixels, ctypes
 def do_blit(arg_1, arg_2):
     # Array dimensions and starting points
     dim_0, dim_1 = arg_1.shape
-    parg_1 = pixels.Pointer(arg_1, arg_1.__array_interface__.__getitem__('data').__getitem__(0), ctypes.c_char)
+    parg_1 = pixels.Pointer(arg_1, arg_1.__array_interface__['data'][0], ctypes.c_char)
     parg_2 = pixels.Pointer(arg_2, arg_2._pixels_address, c_char_p)
 
     # Pointer increments

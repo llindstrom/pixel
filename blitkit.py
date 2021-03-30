@@ -1,9 +1,10 @@
-# Develope template instantiation
+# Develop template instantiation
 #
 # TODO: Find way to add globals from type templates Surface and PixelArray
 #
 import astkit
 import pixels
+import ast
 import ctypes
 
 class Blitter:
@@ -17,43 +18,49 @@ class Blitter:
         return self.method(src_type, dst_type, self.loop_indices)
 
 class BlitterFactory:
-    """Base class"""
+    """Base class
+    
+    Construct a blit loop AST that 
+    """
 
     def __init__(self, arg1_type, arg2_type, loop_indices):
         self.arg1_type = arg1_type
         self.arg2_type = arg2_type
         self.loop_indices = loop_indices
 
-    def __call__(self, fn):
-        fn_name = name_of(fn)
-        mangled_fn_name = f"{fn_name}__0"
+    def __call__(self, fn_ast):
+        """Inline the fn_ast within blitter loops"""
+        check_arg_count(fn_ast, 2)
+        check_no_returns(fn_ast)
         type_name_1 = name_of(self.arg1_type)
         type_name_2 = name_of(self.arg2_type)
         arg_types = [self.arg1_type, self.arg2_type]
-        tree = self.make_tree(fn_name, mangled_fn_name, arg_types)
-        code = compile(tree, '<C_Iterator>', 'exec')
-        gbls = {f'{mangled_fn_name}': fn,
-                 'Pointer_0': pixels.Pointer, # TODO: Move elsewhere
-                 'c_char_0': ctypes.c_char, # TODO: Move elsewhere
-                 'Pixel_0': Pixel, # TODO: Move elsewhere
-                }
-        lcls = {}
-        exec(code, gbls, lcls)
-        blit = lcls[fn_name]
-        trav = ", ".join(str(i) for i in self.loop_indices)
-        blit.__doc__ = (
-            f"{fn_name}(src: {type_name_1}, dst: {type_name_2}) -> None\n\n"
-             "Blit src to dst. This version uses C pointer arithmetic only\n"
-            f"to traverse over elements in index order [{trav}].")
-        blit.tree = tree
-        blit.wraps = fn
-        return blit
+        return self.make_tree(fn_ast, arg_types)
+##        code = compile(tree, '<C_Iterator>', 'exec')
+##        gbls = {f'{mangled_fn_name}': fn,
+##                 'Pointer_0': pixels.Pointer, # TODO: Move elsewhere
+##                 'c_char_0': ctypes.c_char, # TODO: Move elsewhere
+##                 'Pixel_0': Pixel, # TODO: Move elsewhere
+##                }
+##        lcls = {}
+##        exec(code, gbls, lcls)
+##        blit = lcls[fn_name]
+##        trav = ", ".join(str(i) for i in self.loop_indices)
+##        blit.__doc__ = (
+##            f"{fn_name}(src: {type_name_1}, dst: {type_name_2}) -> None\n\n"
+##             "Blit src to dst. This version uses C pointer arithmetic only\n"
+##            f"to traverse over elements in index order [{trav}].")
+##        blit.tree = tree
+##        blit.wraps = fn
+##        return blit
 
-    def make_tree(self, fn_name, wrapped_fn_name, arg_types):
+    def make_tree(self, fn_ast, arg_types):
         raise NotImplementedError("Abstract base function")
 
 class C_Iterators(BlitterFactory):
-    def make_tree(self, fn_name, wrapped_fn_name, arg_types):
+    def make_tree(self, fn_ast, arg_types):
+        check_no_returns(fn_ast)
+        fn_name = fn_ast.name
         loop_indices = self.loop_indices
         ndims = len(loop_indices)
 
@@ -110,12 +117,10 @@ class C_Iterators(BlitterFactory):
         b.Name(f'arg_1_end_{i}')
         b.Lt()
         b.While()
-        b.Name(wrapped_fn_name)
-        b.Call()
+        inline_call(b, fn_ast)
         arg_types[0].Pixel(b, 'parg_1')
         arg_types[1].Pixel(b, 'parg_2')
         b.end()
-        b.Expr()
         b.Name(f'arg_1_stride_{i}')
         b.Name('parg_1')
         b.IAdd()
@@ -172,10 +177,42 @@ def name_of(o):
         pass
     return repr(o)
 
+def inline_call(build, fn_ast):
+    def do_inlining(args):
+        if len(args) != len(arg_names):
+            len1 = len(args)
+            len2 = len(arg_names)
+            msg = f"Inlined function takes {len2} argments: {len1} given"
+            raise BuildError(msg)
+        for name, value in zip(arg_names, args):
+            build.push(value)
+            build.Name(name)
+            build.Assign1()
+        build.push_list(body)
+
+    arg_names = [a.arg for a in fn_ast.args.args]
+    body = fn_ast.body
+    build.defer(do_inlining)
+
+def check_arg_count(fn_ast, n):
+    actual_n = len(fn_ast.args.args)
+    if actual_n != n:
+        msg = (f"expect inline function to have {n} arguments:"
+               f" has {nn}")
+        raise BuildError(msg)
+
+def check_no_returns(fn_ast):
+    body = fn_ast.body
+    for stmt in body:
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Return):
+                msg = "No return statements allowed in an inlined function"
+                raise BuildError(msg)
+        
 class Surface:
     @staticmethod
     def Pixel(build, ptr_name):
-        build.Name('Pixel_0')
+        build.Name('blitkit.Pixel')
         build.Call()
         build.Name(ptr_name)
         build.end()
@@ -202,18 +239,18 @@ class Surface:
 
     @staticmethod
     def pointer(build, surf_name):
-        build.Name('Pointer_0')
+        build.Name('pixels.Pointer')
         build.Call()
         build.Name(surf_name)
         build.Name(surf_name)
         build.Attribute('_pixels_address')
-        build.Name('c_char_0')
+        build.Name('ctypes.c_char')
         build.end()
 
 class Array2:
     @staticmethod
     def Pixel(build, ptr_name):
-        build.Name('Pixel_0')
+        build.Name('blitkit.Pixel')
         build.Call()
         build.Name(ptr_name)
         build.end()
@@ -230,7 +267,7 @@ class Array2:
 
     @staticmethod
     def pointer(build, array_name):
-        build.Name('Pointer_0')
+        build.Name('pixels.Pointer')
         build.Call()
         build.Name(array_name)
         build.Name(array_name)
@@ -243,7 +280,7 @@ class Array2:
         build.Call()
         build.Constant(0)
         build.end()
-        build.Name('c_char_0')
+        build.Name('ctypes.c_char')
         build.end()
 
 class Pixel:
@@ -264,27 +301,22 @@ class Pixel:
     def pixel(self, p):
         ctypes.c_long.from_address(self.addr).value = int(p)
 
-# This is what should be generated for
+# This is what should be generated by expand.expand for
 #
 #     @blitter(blitkit.Array2, blitkit.Surface)
 #     def do_blit(s, d):
-#         pass
+#         d.pixel = s
 #     
 # Function globals are:
-#     {'Array__1': blitkit.Array2, 'Surface__2': blitkit.Surface,
-#      'do_blit__0': do_blit
-#      'Pointer_0': pixels.Pointer, 'c_char_0': ctypes.c_char,
-#      'Pixels_0': blitkit.Pixel }
+#      'pixels.Pointer', 'ctypes.c_char', 'blitkit.Pixel'
 #
-def do_blit(arg_1, arg_2):
-    """do_blit(src: Array, dst: Surface) -> None
+import blitkit, pixels, ctypes
 
-Blit src to dst. This version uses C pointer arithmetic only
-to traverse over elements in index order [1, 0]."""
+def do_blit(arg_1, arg_2):
     # Array dimensions and starting points
     dim_0, dim_1 = arg_1.shape
-    parg_1 = Pointer_0(arg_1, arg_1.__array_interface__.__getitem__('data').__getitem__(0), c_char_0)
-    parg_2 = Pointer_0(arg_2, arg_2._pixels_address, c_char_p)
+    parg_1 = pixels.Pointer(arg_1, arg_1.__array_interface__.__getitem__('data').__getitem__(0), ctypes.c_char)
+    parg_2 = pixels.Pointer(arg_2, arg_2._pixels_address, c_char_p)
 
     # Pointer increments
     (arg_1_stride_0, arg_1_stride_1) = a_1.strides
@@ -298,7 +330,9 @@ to traverse over elements in index order [1, 0]."""
         # Loop over index 0...
         arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
         while parg_1 < arg_1_end_0:
-            do_blit__0(Pixel_0(parg_1), Pixel_0(parg_2))
+            s = blitkit.Pixel(parg_1)
+            d = blitkit.Pixel(parg_2)
+            d.pixel = s
             parg_1 += arg_1_stride_0
             parg_2 += arg_2_stride_0
 

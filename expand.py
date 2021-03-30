@@ -9,8 +9,11 @@ def expand(source, path, symbol_table):
     """
 
     symtab = symbol_table.copy()
+    # Stage One: General template
     module_ast = ast.parse(source, path, 'exec')
     inline_decorators(module_ast, symtab)
+
+    # Stage Two: Specialize template
     typer(module_ast, symtab)
     inline_types(module_ast, symtab)
     add_imports(module_ast, symtab)
@@ -68,15 +71,6 @@ def outer_names(name):
     elements = name.split('.')
     for i in range(1, len(elements)):
         yield '.'.join(elements[0:i])
-
-def expression_root_id(expr):
-    if isinstance(expr, ast.Name):
-        return expr.id
-    if isinstance(expr, ast.Attribute):
-        return expression_root_id(expr.value)
-    if isinstance(expr, ast.Subsript):
-        return expression_root_id(expr.value)
-    raise ValueError(f"Unsupported expr {expr}")
 
 def evaluate(node, symtab):
     """eval a simple ast expression"""

@@ -73,7 +73,7 @@ class TreeBuilder:
 
     def push(self, arg, lineno=None, col_offset=None):
         """Place one arguemnt onto the stack
-        
+
         Position information is added, when needed, and the line number
         is incremented for statements.
         """
@@ -255,6 +255,18 @@ class TreeBuilder:
         if not isinstance(function, ast.expr):
             raise BuildError("The Call target must be an expression")
         self.defer(do_call)
+
+    def Subscript(self):
+        """Subscript operation
+
+        <key>, <value> => Subscript
+        """
+        key, value = self.pop_list(2)
+        if not isinstance(key, ast.expr):
+            raise BuildError("Subscript key not an expression")
+        if not isinstance(value, ast.expr):
+            raise BuildError("Subscript value not an expression")
+        self.push(ast.Subscript(value, key, ctx=self._load))
 
     def identifier(self, id_str):
         """Add an identifier string to the stack"""

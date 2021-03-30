@@ -133,6 +133,34 @@ class TestBasics(unittest.TestCase):
         self.assertEqual(len(lcls), 1)
         self.assertEqual(lcls['x'], 5)
 
+    def test_subscript(self):
+        b = ak.TreeBuilder()
+        # As value
+        b.Constant(1)
+        b.Constant("abc")
+        b.Subscript()
+        expr = b.Expression()
+        code = compile(expr, '<ast>', 'eval')
+        self.assertEqual(eval(code), "b")
+
+        # As target
+        b.Name('list')
+        b.Call()
+        b.Constant((1, 9, 3))
+        b.end()
+        b.Name('x')
+        b.Assign1()
+        b.Constant(2)
+        b.Constant(1)
+        b.Name('x')
+        b.Subscript()
+        b.Assign1()
+        module = b.Module()
+        code = compile(module, '<ast>', 'exec')
+        gbls = {}
+        exec(code, gbls)
+        self.assertEqual(gbls['x'], [1, 2, 3])
+
 if __name__ == '__main__':
     unittest.main()
 

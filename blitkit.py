@@ -6,6 +6,7 @@ import astkit
 import pixels
 import ast
 import ctypes
+import collections
 
 class Blitter:
     def __init__(self, method, loop_indices):
@@ -184,14 +185,20 @@ def inline_call(build, fn_ast):
             len2 = len(arg_names)
             msg = f"Inlined function takes {len2} argments: {len1} given"
             raise BuildError(msg)
+        replace = dict()
         for name, value in zip(arg_names, args):
-            build.push(value)
-            build.Name(name)
-            build.Assign1()
+            if counts[name] > 1:
+                build.push(value)
+                build.Name(name)
+                build.Assign1()
+            elif counts[name] == 1:
+                replace[name] = value
+        replace_name(body, replace)
         build.push_list(body)
 
     arg_names = [a.arg for a in fn_ast.args.args]
     body = fn_ast.body
+    counts = count_name_accesses(body)
     build.defer(do_inlining)
 
 def check_arg_count(fn_ast, n):
@@ -209,6 +216,27 @@ def check_no_returns(fn_ast):
                 msg = "No return statements allowed in an inlined function"
                 raise BuildError(msg)
         
+def count_name_accesses(body):
+    return collections.Counter(n.id
+        for r in body for n in ast.walk(r) if isinstance(n, ast.Name))
+
+def replace_name(body, replacements):
+    if replacements:
+        rep = ReplaceName(replacements)
+        for i in range(len(body)):
+            body[i] = rep.visit(body[i])
+
+class ReplaceName(ast.NodeTransformer):
+    def __init__(self, replacements):
+        self.replacements = replacements
+
+    def visit_Name(self, node):
+        try:
+            node = self.replacements[node.id]
+        except KeyError:
+            pass
+        return node
+
 class Surface:
     @staticmethod
     def Pixel(build, ptr_name):
@@ -326,9 +354,7 @@ def do_blit(arg_1, arg_2):
         # Loop over index 0...
         arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
         while parg_1 < arg_1_end_0:
-            s = blitkit.Pixel(parg_1)
-            d = blitkit.Pixel(parg_2)
-            d.pixel = s
+            blitkit.Pixel(parg_2).pixel = blitkit.Pixel(parg_1)
             parg_1 += arg_1_stride_0
             parg_2 += arg_2_stride_0
 

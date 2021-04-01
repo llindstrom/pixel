@@ -274,15 +274,27 @@ class TreeBuilder:
             raise BuildError("identifier argument must be a string")
         self.push(id_str)
 
+    def arg(self, id_str, annotation_str=None):
+        if annotation_str is not None:
+            if not isinstance(annotation_str, str):
+                msg = "arg only accepts a string annotation"
+                raise BuildError(msg)
+            a = ast.arg(id_str, ast.Constant(annotation_str))
+        else:
+            a = ast.arg(id_str)
+        self.push(a)
+
     def arguments(self):
         """Function call arguments"""
         def do_arguments(args):
             arglist = []
             for a in args:
-                if not isinstance(a, str):
-                    msg = "arguments only allows identifiers in argument list"
+                if isinstance(a, str):
+                    a = ast.arg(a, **self._posn())
+                elif not isinstance(a, ast.arg):
+                    msg = "arguments only allows identifiers or args in argument list"
                     raise BuildError(msg)
-                arglist.append(ast.arg(a, **self._posn()))
+                arglist.append(a)
             self.push(ast.arguments([], arglist, vararg=None,
                                     kwonlyargs=[], kwarg=None,
                                     kw_defaults=[], defaults=[]))

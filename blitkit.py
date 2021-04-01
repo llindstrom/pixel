@@ -3,10 +3,10 @@
 # TODO: Find way to add globals from type templates Surface and PixelArray
 #
 import astkit
-import pixels
 import ast
 import ctypes
 import collections
+import functools
 
 class Blitter:
     def __init__(self, method, loop_indices):
@@ -237,10 +237,13 @@ class ReplaceName(ast.NodeTransformer):
             pass
         return node
 
+# Python specific inliners
 class Surface:
     @staticmethod
     def Pixel(build, ptr_name):
+        build.Name('ctypes.c_long')
         build.Name('blitkit.Pixel')
+        build.Subscript()
         build.Call()
         build.Name(ptr_name)
         build.end()
@@ -267,18 +270,21 @@ class Surface:
 
     @staticmethod
     def pointer(build, surf_name):
-        build.Name('pixels.Pointer')
+        build.Name('ctype.c_char')
+        build.Name('blitkit.Pointer')
+        build.Subscript()
         build.Call()
         build.Name(surf_name)
         build.Name(surf_name)
         build.Attribute('_pixels_address')
-        build.Name('ctypes.c_char')
         build.end()
 
 class Array2:
     @staticmethod
     def Pixel(build, ptr_name):
+        build.Name('ctypes.c_long')
         build.Name('blitkit.Pixel')
+        build.Subscript()
         build.Call()
         build.Name(ptr_name)
         build.end()
@@ -295,7 +301,9 @@ class Array2:
 
     @staticmethod
     def pointer(build, array_name):
-        build.Name('pixels.Pointer')
+        build.Name('ctypes.c_char')
+        build.Name('blitkit.Pointer')
+        build.Subscript()
         build.Call()
         build.Name(array_name)
         build.Constant(0)
@@ -304,26 +312,123 @@ class Array2:
         build.Attribute('__array_interface__')
         build.Subscript()
         build.Subscript()
-        build.Name('ctypes.c_char')
         build.end()
 
+# Python specific classes:
+class Generic:
+    _cache = {}
+
+    def __new__(cls, container_type):
+        try:
+            return cls._cache[container_type.__name__]
+        except KeyError:
+            c = object.__new__(cls)
+            c.__init__(container_type)
+            cls._cache[container_type.__name__] = c
+        return c
+
+    def __init__(self, cls):
+        self.cls = cls
+        self._cache = {}
+
+    def __getitem__(self, item_type):
+        return functools.partial(self.cls, item_type)
+
+@Generic
+class Pointer:
+    def __init__(self, ctype, obj, addr):
+        self.obj = obj  # To keep alive
+        self.addr = addr
+        self.ctype = ctype
+        self.size = ctypes.sizeof(ctype)
+
+    def __int__(self):
+        return addr
+
+    def __add__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only add integers to a pointer")
+        addr = self.addr + self.size * other
+        return type(self)(self.ctype, self.obj, addr)
+
+    def __radd__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only add integers to a pointer")
+        addr = self.addr + self.size * other
+        return type(self)(self.ctype, self.obj, addr)
+
+    def __iadd__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only add integers to a pointer")
+        self.addr += self.size * other
+        return self
+
+    def __sub__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only subtract integers from a pointer")
+        addr = self.addr - self.size * other
+        return type(self)(self.ctype, self.obj, self.addr - self.size)
+
+    def __rsub__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only subtract integers from a pointer")
+        return self.size * other - self.addr
+
+    def __isub__(self, other):
+        if not isinstance(other, int):
+            raise TypeError("Can only subtract integers from a pointer")
+        self.addr -= self.dsize * other
+        return self
+
+    def __getitem__(self, key):
+        if not isinstance(key, int):
+            raise TypeError("Only single integer keys allowed")
+        addr = self.addr + self.size * key
+        return self.ctype.from_address(addr).value
+
+    def __setitem__(self, key, value):
+        if not isinstance(key, int):
+            raise TypeError("Only single integer keys allowed")
+        addr = self.addr + self.size * key
+        self.ctype.from_address(addr).value = value
+
+    def __eq__(self, other):
+        return self.addr == other.addr
+
+    def __ne__(self, other):
+        return self.addr != other.addr
+
+    def __lt__(self, other):
+        return self.addr < other.addr
+
+    def __le__(self, other):
+        return self.addr <= other.addr
+
+    def __gt__(self, other):
+        return self.addr > other.addr
+
+    def __ge__(self, other):
+        return self.addr >= other.addr
+
+@Generic
 class Pixel:
-    def __init__(self, pointer):
-        if pointer.addr % 4 != 0:
-            raise ValueError("Pointer not aligned on word boundary")
+    def __init__(self, ctype, pointer):
+        if pointer.addr % ctypes.sizeof(ctype) != 0:
+            raise ValueError("Pointer not aligned on pixel boundary")
+        self.from_address = ctype.from_address
         self.obj = pointer.obj
         self.addr = pointer.addr
 
     def __int__(self):
-        return int(ctypes.c_long.from_address(self.addr).value)
+        return int(self.from_address(self.addr).value)
 
     @property
     def pixel(self):
-        return int(ctypes.c_long.from_address(self.addr).value)
+        return int(self.from_address(self.addr).value)
 
     @pixel.setter
     def pixel(self, p):
-        ctypes.c_long.from_address(self.addr).value = int(p)
+        self.from_address(self.addr).value = int(p)
 
 # This is what should be generated by expand.expand for
 #
@@ -332,15 +437,15 @@ class Pixel:
 #         d.pixel = s
 #     
 # Function globals are:
-#      'pixels.Pointer', 'ctypes.c_char', 'blitkit.Pixel'
+#      'blitkit.Pointer', 'ctypes.c_char', 'blitkit.Pixel', 'ctypes.c_long'
 #
-import blitkit, pixels, ctypes
+import blitkit, ctypes
 
 def do_blit(arg_1, arg_2):
     # Array dimensions and starting points
     dim_0, dim_1 = arg_1.shape
-    parg_1 = pixels.Pointer(arg_1, arg_1.__array_interface__['data'][0], ctypes.c_char)
-    parg_2 = pixels.Pointer(arg_2, arg_2._pixels_address, c_char_p)
+    parg_1 = blitkit.Pointer[ctypes.c_char](arg_1, arg_1.__array_interface__['data'][0])
+    parg_2 = blitkit.Pointer[ctypes.c_char](arg_2, arg_2._pixels_address)
 
     # Pointer increments
     (arg_1_stride_0, arg_1_stride_1) = a_1.strides
@@ -354,7 +459,7 @@ def do_blit(arg_1, arg_2):
         # Loop over index 0...
         arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
         while parg_1 < arg_1_end_0:
-            blitkit.Pixel(parg_2).pixel = blitkit.Pixel(parg_1)
+            blitkit.Pixel[ctypes.c_long](parg_2).pixel = blitkit.Pixel[ctypes.c_long](parg_1)
             parg_1 += arg_1_stride_0
             parg_2 += arg_2_stride_0
 

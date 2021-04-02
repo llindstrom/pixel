@@ -3,6 +3,7 @@
 # TODO: Find way to add globals from type templates Surface and PixelArray
 #
 import astkit
+from astkit import BuildError
 import ast
 import ctypes
 import collections
@@ -138,7 +139,7 @@ class C_Iterators(BlitterFactory):
         b.end()  # outer loop
 
         b.end()  # function do_blit
-        return b.Module()
+        return b.pop()
 
 def get_dims(build, ndims, typ, name):
     typ.size_of(build, name)

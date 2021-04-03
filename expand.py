@@ -394,7 +394,7 @@ typer_symbols = {
     'blitkit.Surface': 'generic.TSurface',
     'generic.TSurface': TSurface(),
     'ctypes.c_char': TExternal('ctypes.c_char'),
-    'ctypes.c_long': TExternal('ctypes.c_char'),
+    'ctypes.c_long': TExternal('ctypes.c_long'),
     }
 
 class Typer(ast.NodeVisitor):

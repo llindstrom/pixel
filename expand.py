@@ -1,8 +1,12 @@
 """Compile loop descriptions file into a Python module
+
+Need to separate out global and local symbol tables to support multiple modue level
+function declarations.
 """
 
 import blitkit
 import ast
+import re
 
 def expand(source, path, symbol_table):
     """expand(source: str, path: string, glbs: dict) -> str
@@ -16,8 +20,8 @@ def expand(source, path, symbol_table):
     # Stage Two: Specialize template
     symtab.update(typer_symbols)
     typer(module_ast, symtab)
-##    symtab.update(inliner_symbols)
-##    inline_types(module_ast, symtab)
+    symtab.update(inliner_symbols)
+    inline_types(module_ast, symtab)
     add_imports(module_ast)
     return ast.unparse(module_ast), symtab
 
@@ -40,8 +44,8 @@ def typer(module, symtab):
 def inline_types(module, symtab):
     """Replace types with inlined code"""
 
-    ## STUB: does nothing
-    return module, symtab
+    visitor = Inliner(symtab)
+    visitor.visit(module)
 
 def add_imports(module):
     """Insert import statements from symbol table"""
@@ -399,6 +403,7 @@ typer_symbols = {
 
 class Typer(ast.NodeVisitor):
     def __init__(self, symbol_table):
+        super().__init__()
         self.symtab = symbol_table
 
     def lookup(self, symbol):
@@ -591,83 +596,207 @@ def get_typ_id(node):
         return None
 
 # Inliner types
-class IPointer:
+class IGeneric:
+    def __init__(self, root_name):
+        self._cache = {}
+        self.root_name = root_name
+        self.subscript_re = re.compile(fr'{root_name}\[([^]]+)\]')
+
+    def subtype(self, typ_id):
+        match = self.subscript_re.match(typ_id)
+        if match is None:
+            return None
+        return match.group(1)
+
+    def find_size(self, typ_id):
+        subtype = self.subtype(typ_id)
+        if sybtype is None:
+            return 0
+        try:
+            size = self._cache[subtype]
+        except KeyError:
+            ctype = eval(subtype)
+            size = ctypes.sizeof(ctype)
+            self._cache[sybtype] = size
+        return size
+
+    def Subscript(self, node, symtab):
+        # Assume node.slice is an ast.Name giving a fully qualified identifier
+        assert(node.value.typ_id == self.root_name)
+        tmpl_arg = node.slice.id
+        typ_id = f"inliner.{type(self).__name__}[tmpl_arg]"
+        blitkit_typ_id = f"{self.root_name}[tmpl_arg]"
+        try:
+            inliner = symtab[typ_id]
+        except KeyError:
+            symtab[typ_id] = self
+            symtab[blitkit_typ_id] = typ_id
+        return ast.Name(blitkit_typ_id, ctx=node.ctx, typ_id=blitkit_typ_id)
+
+class IPointer(IGeneric):
     python_type = int
 
-    def __init__(self, ctype_name):
-        ctype = eval(ctype_name)
-        self.size = ctypes.sizeof(ctype)
+    def __init__(self):
+        super().__init__("blitkit.Pointer")
 
-    def new(self, args):
-        if len(args) != 2:
-            raise blitkit.BuildError("Pointer class expects 2 arguments")
-        return args[1]
-
-    def int(self, node):
+    def Name(self, node, symtab):
+        if self.subtype(node.typ_id) is not None:
+            node.typ_id = self.python_type
+            symtab[node.id] = node.typ_id
         return node
 
-    def visit_Add(self, node):
-        if self.size > 1:
-            node.right = ast.Mult(node.right, Constant(self.size))
+    def Call(self, node, symtab):
+        # Assume __init__ call
+        assert(node.typ_id.startswith("inliner.IPointer["))
+        value = node.args[1]
+        value.typ_id = self.python_type
+        if isinstance(value, ast.Name):
+            self.symtab[value.id] = value.typ_id
+        return value
+
+    def BinOp(self, node, symtab):
+        # Assuming <pointer> op <int> arithmetic only
+        assert(node.typ_id.startswith("blitkit.Pointer["))
+        op = node.op
+        right = node.right
+        if isinstance(op, (ast.Add, ast.Sub)):
+            if self.size > 1:
+                node.value = ast.Mult(node.right, Constant(self.size))
+                node.value.typ_id = node.right.typ_id
+                node.typ_id = self.python_type
+        else:
+            op_name = type(op).__name__
+            raise blitkit.BuildError(f"Unsupported op {op_name}")
         return node
 
-    def visit_IAdd(self, node):
-        if self.size > 1:
-            node.value = ast.Mult(node.value, Constant(self.size))
+    def Compare(self, node):
+        if node.left.typ_id.startswith('blitkit.Pointer['):
+            node.left.typ_id = self.python_type
+        for other in node.comparators:
+            if other.typ_id.startswith('blitkit.Pointer['):
+                other.typ_id = self.python_type
         return node
 
-    def visit_BinOp(self, node):
-        pass
-
-    def Lt(self, node):
+    def Assign(self, node):
+        # expr is a pointer
+        assert(node.expr.typ_id.startswith('blitkit.Pointer['))
+        for t in node.targets:
+            if t.typ_id.startswith('blitkit.Pointer['):
+                t.typ_id = self.python_type
         return node
 
-class IPixel:
-    """Pointer to C long"""
-    def __init__(self, ctype_name):
+    def AugAssign(self, node):
+        # <pointer> op= <int> arithmetic only
+        assert(node.value.typ_id == 'int')
+        op = node.op
+        target = node.target
+        if isinstance(op, (ast.Add, ast.Sub)):
+            if self.size > 1:
+                node.value = ast.Mult(node.value, Constant(self.size))
+                node.value.typ_id = node.left.value.typ_id
+        else:
+            op_name = type(op).__name__
+            raise blitkit.BuildError(f"Unsupported op {op_name}")
+        return node
+
+class IPixel(IGeneric):
+    """Pointer to C integer"""
+    def __init__(self):
+        super().__init__('blitkit.Pixel')
         self.build = astkit.TreeBuilder()
-        self.python_type = eval(ctype_name)
 
-    def Attribute(self, node):
+    def Call(self, node, symtab):
+        # Assume __init__ call
+        assert(node.typ_id == 'inliner.IPixel[')
+        replacement = node.args[0]
+        replacement.typ_id = node.typ_id
+        return replacement
+
+    def Attribute(self, node, symtab):
         attr = node.attr
         if isinstance(node.ctx, ast.Load):
             if attr == 'pixel':
-                return self.cast_int(node.value)
+                return self
         else:
             if attr == 'pixel':
+                subtype = self.subtype(node.value.typ_id)
+                assert(subtype is not None)
                 b = self.build
-                b.Name('ctypes')
-                b.Attribute('c_long')
+                b.Name(subtype)
                 b.Attritute('from_address')
                 b.Call()
                 b.push(node)
                 b.end
                 b.Attribute('value')
-                return b.pop()
+                expr = b.pop()
+                expr.ctx = ast.Store()
+                expr.typ_id = 'int'
+                return expr
         msg = f"Unknown attribute {attr}"
         raise blitkit.BuildError(msg)
 
-    def int(self, node):
-        return self.cast_int(node.args.args[0].arg)
+class IAny:
+    itype_methods = {
+        'Call', 'Attribute', 'Subscript', 'BinOp', 'Name',
+        'Assign', 'AugAssign', 'Compare'
+        }
 
-    def cast_int(self, node):
-        b = self.build
-        b.Name('int')
-        b.Call()
-        b.Name('ctypes')
-        b.Attribute('c_long')
-        b.Attritute('from_address')
-        b.Call()
-        b.push(node)
-        b.end
-        b.Attribute('value')
-        b.end()
-        return b.pop()
+    def __getattr__(self, attr):
+        if attr in self.itype_methods:
+            return self.pass_through
+        msg = f"'{type(self).__name__}' object has no attribute '{attr}'"
+        raise AttributeError(msg)
+
+    @staticmethod
+    def pass_through(node, symtab):
+        return node
+
+i_any = IAny()
 
 inliner_symbols = {
-    'blitkit.Pointer': IPointer,
-    'blitkit.Pixel': IPixel,
+    'blitkit.Pointer': 'inliner.IPointer',
+    'inliner.IPointer': IPointer,
+    'blitkit.Pixel': 'inliner.IPixel',
+    'inliner.IPixel': IPixel,
     }
+
+class Inliner(IAny, ast.NodeTransformer):
+    def __init__(self, symbol_table):
+        super().__init__()
+        self.symtab = symbol_table
+
+    def lookup(self, node):
+        itype = node.typ_id
+        while isinstance(itype, str):
+            try:
+                itype = self.symtab[itype]
+            except KeyError:
+                return i_any
+        return itype
+
+    def visit_Name(self, node):
+        return self.lookup(node).Name(node, self.symtab)
+
+    def visit_Call(self, node):
+        return self.lookup(node.func).Call(node, self.symtab)
+
+    def visit_Attribute(self, node):
+        return self.lookup(node.value).Attribute(node, self.symtab)
+
+    def visit_Subscript(self, node):
+        return self.lookup(node.value).Subscript(node, self.symtab)
+
+    def visit_BinOp(self, node):
+        return self.lookup(node.left).BinOp(node, self.symtab)
+
+    def visit_Compare(self, node):
+        return self.lookup(node.left).Compare(node, self.symtab)
+
+    def visit_Assign(self, node):
+        return self.lookup(node.value).Assign(node, self.symtab)
+
+    def visit_AugAssign(self, node):
+        return self.lookup(node.target).AugAssign(node, self.symtab)
 
 class ImportCollector(ast.NodeVisitor):
     """Collect modules that need importing
@@ -675,6 +804,7 @@ class ImportCollector(ast.NodeVisitor):
     Constructed names will be fully qualified names.
     """
     def __init__(self):
+        super().__init__()
         self.imports = set()
 
     def visit_Name(self, node):

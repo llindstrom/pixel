@@ -5,8 +5,10 @@ function declarations.
 """
 
 import blitkit
+import astkit
 import ast
 import re
+import ctypes   # For type inlining
 
 def expand(source, path, symbol_table):
     """expand(source: str, path: string, glbs: dict) -> str
@@ -19,11 +21,10 @@ def expand(source, path, symbol_table):
 
     # Stage Two: Specialize template
     symtab.update(typer_symbols)
-    typer(module_ast, symtab)
-    symtab.update(inliner_symbols)
-    inline_types(module_ast, symtab)
+    typer_symtab = typer(module_ast, symtab)
+    inline_types(module_ast, inliner_symbols)
     add_imports(module_ast)
-    return ast.unparse(module_ast), symtab
+    return ast.unparse(module_ast), typer_symtab
 
 def inline_decorators(module, symtab):
     """Replace decorators with inlined code"""
@@ -40,6 +41,7 @@ def typer(module, symtab):
 
     visitor = Typer(symtab)
     visitor.visit(module)
+    return visitor.symtab
 
 def inline_types(module, symtab):
     """Replace types with inlined code"""
@@ -404,7 +406,7 @@ typer_symbols = {
 class Typer(ast.NodeVisitor):
     def __init__(self, symbol_table):
         super().__init__()
-        self.symtab = symbol_table
+        self.symtab = symbol_table.copy()
 
     def lookup(self, symbol):
         try:
@@ -610,22 +612,21 @@ class IGeneric:
 
     def find_size(self, typ_id):
         subtype = self.subtype(typ_id)
-        if sybtype is None:
+        if subtype is None:
             return 0
         try:
             size = self._cache[subtype]
         except KeyError:
             ctype = eval(subtype)
             size = ctypes.sizeof(ctype)
-            self._cache[sybtype] = size
+            self._cache[subtype] = size
         return size
 
     def Subscript(self, node, symtab):
         # Assume node.slice is an ast.Name giving a fully qualified identifier
-        assert(node.value.typ_id == self.root_name)
         tmpl_arg = node.slice.id
-        typ_id = f"inliner.{type(self).__name__}[tmpl_arg]"
-        blitkit_typ_id = f"{self.root_name}[tmpl_arg]"
+        typ_id = f"inliner.{type(self).__name__}[{tmpl_arg}]"
+        blitkit_typ_id = f"{self.root_name}[{tmpl_arg}]"
         try:
             inliner = symtab[typ_id]
         except KeyError:
@@ -634,7 +635,7 @@ class IGeneric:
         return ast.Name(blitkit_typ_id, ctx=node.ctx, typ_id=blitkit_typ_id)
 
 class IPointer(IGeneric):
-    python_type = int
+    python_type = 'int'
 
     def __init__(self):
         super().__init__("blitkit.Pointer")
@@ -647,7 +648,7 @@ class IPointer(IGeneric):
 
     def Call(self, node, symtab):
         # Assume __init__ call
-        assert(node.typ_id.startswith("inliner.IPointer["))
+        assert(node.typ_id.startswith("blitkit.Pointer["))
         value = node.args[1]
         value.typ_id = self.python_type
         if isinstance(value, ast.Name):
@@ -660,8 +661,9 @@ class IPointer(IGeneric):
         op = node.op
         right = node.right
         if isinstance(op, (ast.Add, ast.Sub)):
-            if self.size > 1:
-                node.value = ast.Mult(node.right, Constant(self.size))
+            size = self.find_size(node.left.typ_id)
+            if size > 1:
+                node.value = ast.Mult(node.right, Constant(size))
                 node.value.typ_id = node.right.typ_id
                 node.typ_id = self.python_type
         else:
@@ -669,7 +671,7 @@ class IPointer(IGeneric):
             raise blitkit.BuildError(f"Unsupported op {op_name}")
         return node
 
-    def Compare(self, node):
+    def Compare(self, node, symtab):
         if node.left.typ_id.startswith('blitkit.Pointer['):
             node.left.typ_id = self.python_type
         for other in node.comparators:
@@ -677,22 +679,23 @@ class IPointer(IGeneric):
                 other.typ_id = self.python_type
         return node
 
-    def Assign(self, node):
-        # expr is a pointer
-        assert(node.expr.typ_id.startswith('blitkit.Pointer['))
+    def Assign(self, node, symtab):
+        # value is a pointer
+        assert(node.value.typ_id.startswith('blitkit.Pointer['))
         for t in node.targets:
             if t.typ_id.startswith('blitkit.Pointer['):
                 t.typ_id = self.python_type
         return node
 
-    def AugAssign(self, node):
+    def AugAssign(self, node, symtab):
         # <pointer> op= <int> arithmetic only
         assert(node.value.typ_id == 'int')
         op = node.op
         target = node.target
         if isinstance(op, (ast.Add, ast.Sub)):
-            if self.size > 1:
-                node.value = ast.Mult(node.value, Constant(self.size))
+            size = self.find_size(node.target.typ_id)
+            if size > 1:
+                node.value = ast.Mult(node.value, Constant(size))
                 node.value.typ_id = node.left.value.typ_id
         else:
             op_name = type(op).__name__
@@ -705,9 +708,14 @@ class IPixel(IGeneric):
         super().__init__('blitkit.Pixel')
         self.build = astkit.TreeBuilder()
 
+    def Name(self, node, symtab):
+        if self.subtype(node.typ_id) is not None:
+            symtab[node.id] = node.typ_id
+        return node
+
     def Call(self, node, symtab):
         # Assume __init__ call
-        assert(node.typ_id == 'inliner.IPixel[')
+        assert(node.typ_id.startswith('blitkit.Pixel['))
         replacement = node.args[0]
         replacement.typ_id = node.typ_id
         return replacement
@@ -716,17 +724,18 @@ class IPixel(IGeneric):
         attr = node.attr
         if isinstance(node.ctx, ast.Load):
             if attr == 'pixel':
-                return self
+                return self.cast_int(self.value)
         else:
             if attr == 'pixel':
+                # ctypes.c_<int>.from_address(<ptr>).value
                 subtype = self.subtype(node.value.typ_id)
                 assert(subtype is not None)
                 b = self.build
                 b.Name(subtype)
-                b.Attritute('from_address')
+                b.Attribute('from_address')
                 b.Call()
-                b.push(node)
-                b.end
+                b.push(node.value)
+                b.end()
                 b.Attribute('value')
                 expr = b.pop()
                 expr.ctx = ast.Store()
@@ -734,6 +743,27 @@ class IPixel(IGeneric):
                 return expr
         msg = f"Unknown attribute {attr}"
         raise blitkit.BuildError(msg)
+
+    def cast_int(self, node):
+        subtype = self.subtype(node.typ_id)
+        b = self.build
+        b.Name('int')
+        b.Call()
+        b.Name(subtype)
+        b.Attribute('from_address')
+        b.Call()
+        b.push(node)
+        b.end()
+        b.Attribute('value')
+        b.end()
+        return b.pop()
+
+    def Assign(self, node, symtab):
+        assert(node.value.typ_id.startswith('blitkit.Pixel['))
+        assert(len(node.targets) == 1)
+        assert(node.targets[0].typ_id == 'int')
+        node.value = self.cast_int(node.value)
+        return node
 
 class IAny:
     itype_methods = {
@@ -752,12 +782,19 @@ class IAny:
         return node
 
 i_any = IAny()
+i_pointer = IPointer()
+i_pixel = IPixel()
 
 inliner_symbols = {
     'blitkit.Pointer': 'inliner.IPointer',
-    'inliner.IPointer': IPointer,
+    'inliner.IPointer': i_pointer,
     'blitkit.Pixel': 'inliner.IPixel',
-    'inliner.IPixel': IPixel,
+    'inliner.IPixel': i_pixel,
+    #========================================
+    'generic.TPointerClass': i_pointer,
+    'blitkit.Pointer[ctypes.c_char]': i_pointer,
+    'generic.TPixelClass': i_pixel,
+    'blitkit.Pixel[ctypes.c_long]': i_pixel,
     }
 
 class Inliner(IAny, ast.NodeTransformer):
@@ -778,24 +815,31 @@ class Inliner(IAny, ast.NodeTransformer):
         return self.lookup(node).Name(node, self.symtab)
 
     def visit_Call(self, node):
+        self.generic_visit(node)
         return self.lookup(node.func).Call(node, self.symtab)
 
     def visit_Attribute(self, node):
+        self.generic_visit(node)
         return self.lookup(node.value).Attribute(node, self.symtab)
 
     def visit_Subscript(self, node):
+        self.generic_visit(node)
         return self.lookup(node.value).Subscript(node, self.symtab)
 
     def visit_BinOp(self, node):
+        self.generic_visit(node)
         return self.lookup(node.left).BinOp(node, self.symtab)
 
     def visit_Compare(self, node):
+        self.generic_visit(node)
         return self.lookup(node.left).Compare(node, self.symtab)
 
     def visit_Assign(self, node):
+        self.generic_visit(node)
         return self.lookup(node.value).Assign(node, self.symtab)
 
     def visit_AugAssign(self, node):
+        self.generic_visit(node)
         return self.lookup(node.target).AugAssign(node, self.symtab)
 
 class ImportCollector(ast.NodeVisitor):
@@ -811,3 +855,38 @@ class ImportCollector(ast.NodeVisitor):
         elements = node.id.split('.')
         if len(elements) > 1:
             self.imports.add('.'.join(elements[0:-1]))
+
+# This is what should be generated by expand.expand for
+#
+#     @blitkit.blitter(blitkit.Array2, blitkit.Surface)
+#     def do_blit(s, d):
+#         d.pixel = s
+#     
+# Function globals are: 'ctypes'
+#
+import ctypes
+
+def do_blit(arg_1: 'bitkit.Array2', arg_2: 'blitkit.Surface'):
+    # Array dimensions and starting points
+    dim_0, dim_1 = arg_1.shape
+    parg_1 = arg_1.__array_interface__['data'][0]
+    parg_2 = arg_2._pixels_address
+
+    # Pointer increments
+    (arg_1_stride_0, arg_1_stride_1) = arg_1.strides
+    (arg_2_stride_0, arg_2_stride_1) = (arg_2.get_bytesize(), arg_2.get_pitch())
+    arg_1_delta_1 = arg_1_stride_1 - arg_1_stride_0 * dim_0
+    arg_2_delta_1 = arg_2_stride_1 - arg_2_stride_0 * dim_0
+
+    # Loop over index 1...
+    arg_1_end_1 = parg_1 + arg_1_stride_1 * dim_1
+    while parg_1 < arg_1_end_1:
+        # Loop over index 0...
+        arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
+        while parg_1 < arg_1_end_0:
+            ctypes.c_long.from_address(parg_2).value = int(ctypes.c_long.from_address(parg_1).value)
+            parg_1 += arg_1_stride_0
+            parg_2 += arg_2_stride_0
+
+        parg_1 += arg_1_delta_1
+        parg_2 += arg_2_delta_1

@@ -330,6 +330,14 @@ class Generic:
             cls._cache[container_type.__name__] = c
         return c
 
+    @property
+    def __name__(self):
+        return self.cls.__name__
+
+    @property
+    def __module__(self):
+        return self.cls.__module__
+
     def __init__(self, cls):
         self.cls = cls
         self._cache = {}

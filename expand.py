@@ -200,7 +200,7 @@ class Tint(Template):
 
 class TGeneric(Template):
     def __init__(self, cls):
-        super().__init__(f'generic.{cls.__name__}')
+        super().__init__(f'blitkit.{cls.__name__[1:]}')
         self.cls = cls
         self._cache = {}
 
@@ -275,10 +275,10 @@ class TFunction(Template):
         return self.rettype
 
 @TGeneric
-class TPointerClass(Template):
+class TPointer(Template):
     def __init__(self, item_name):
-        self.instance = TPointer(item_name)
-        super().__init__(f'class.{self.instance!s}')
+        self.instance = TPointerInstance(item_name)
+        super().__init__(f'(Any, Any) -> {self.instance!s}')
 
     def __repr__(self):
         return f"<Class {self.instance!r}>"
@@ -291,14 +291,14 @@ class TPointerClass(Template):
             msg = f"{self!r} argument 2 not an integer"
         return self.instance
 
-class TPointer(Template):
+class TPointerInstance(Template):
     def __init__(self, item_name):
         super().__init__(f'blitkit.Pointer[{item_name[0]}]')
         self.item = item_name[0]
         self.ttype_int = Tint()
 
     def __repr__(self):
-        return f"<TPointer[{self.item}]>"
+        return f"<{type(self).__name__}[{self.item}]>"
 
     def add(self, other):
         if not other == self.ttype_int:
@@ -318,10 +318,10 @@ class TPointer(Template):
         return self
 
 @TGeneric
-class TPixelClass(Template):
+class TPixel(Template):
     def __init__(self, item_name):
-        self.instance = TPixel(item_name)
-        super().__init__(f'class.{self.instance!s}')
+        self.instance = TPixelInstance(item_name)
+        super().__init__(f'(Pointer[Any]) -> {self.instance!s}')
 
     def __repr__(self):
         return f"<Class {self.instance!r}>"
@@ -330,17 +330,17 @@ class TPixelClass(Template):
         if len(args) != 1:
             msg = f"{self!r} accepts 1 arguments: {len(args)} given"
             raise blitkit.BuildError(msg)
-        if not isinstance(args[0], TPointer):
+        if not isinstance(args[0], TPointerInstance):
             msg = f"{self!r} argument 1 not a pointer"
         return self.instance
 
-class TPixel(Template):
+class TPixelInstance(Template):
     def __init__(self, item_name):
         super().__init__(f'blitkit.Pixel[{item_name[0]}]')
         self.item = item_name[0]
 
     def __repr__(self):
-        return f"<TPixel[{self.item}]>"
+        return f"<{type(self).__name__}[{self.item}]>"
 
     def getattr(self, name):
         if name == 'pixel':
@@ -381,24 +381,19 @@ class TSurface(Template):
         if attr == '_pixels_address':
             return Tint()
         if attr == 'get_bytesize':
-            return TFunction('int')
+            return TFunction['int']
         if attr == 'get_pitch':
-            return TFunction('int')
+            return TFunction['int']
         raise blitkit.BuildError(f"Unknown attribute {attr}")
 
 typer_symbols = {
     'int': Tint(),
     'str': Tstr(),
-    'tuple': 'generic.TTuple',
-    'generic.TTuple': TTuple,
-    'blitkit.Pixel': 'generic.TPixelClass',
-    'generic.TPixelClass': TPixelClass,
-    'blitkit.Pointer': 'generic.TPointerClass',
-    'generic.TPointerClass': TPointerClass,
-    'blitkit.Array2': 'generic.TArray2',
-    'generic.TArray2': TArray2(),
-    'blitkit.Surface': 'generic.TSurface',
-    'generic.TSurface': TSurface(),
+    'tuple': TTuple,
+    'blitkit.Pixel': TPixel,
+    'blitkit.Pointer': TPointer,
+    'blitkit.Array2': TArray2(),
+    'blitkit.Surface': TSurface(),
     'ctypes.c_char': TExternal('ctypes.c_char'),
     'ctypes.c_long': TExternal('ctypes.c_long'),
     }
@@ -782,17 +777,10 @@ class IAny:
         return node
 
 i_any = IAny()
-i_pointer = IPointer()
-i_pixel = IPixel()
 
 inliner_symbols = {
-    'blitkit.Pointer': 'inliner.IPointer',
-    'inliner.IPointer': i_pointer,
-    'blitkit.Pixel': 'inliner.IPixel',
-    'inliner.IPixel': i_pixel,
-    #========================================
-    'generic.TPointerClass': i_pointer,
-    'generic.TPixelClass': i_pixel,
+    'blitkit.Pointer': IPointer(),
+    'blitkit.Pixel': IPixel(),
     }
 
 class Inliner(IAny, ast.NodeTransformer):

@@ -792,9 +792,7 @@ inliner_symbols = {
     'inliner.IPixel': i_pixel,
     #========================================
     'generic.TPointerClass': i_pointer,
-    'blitkit.Pointer[ctypes.c_char]': i_pointer,
     'generic.TPixelClass': i_pixel,
-    'blitkit.Pixel[ctypes.c_long]': i_pixel,
     }
 
 class Inliner(IAny, ast.NodeTransformer):
@@ -806,7 +804,7 @@ class Inliner(IAny, ast.NodeTransformer):
         itype = node.typ_id
         while isinstance(itype, str):
             try:
-                itype = self.symtab[itype]
+                itype = self.symtab[itype.partition('[')[0]]
             except KeyError:
                 return i_any
         return itype

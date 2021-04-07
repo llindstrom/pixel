@@ -14,17 +14,22 @@ def expand(source, path, symbol_table):
     """expand(source: str, path: string, glbs: dict) -> str
     """
 
-    symtab = symbol_table.copy()
+    tree, typer_symtab = stage_1(source, path, symbol_table)
+    return stage_2(tree), typer_symtab
+
+def stage_1(source, path, symbol_table):
     # Stage One: General template
+    symtab = symbol_table.copy()
     module_ast = ast.parse(source, path, 'exec')
     inline_decorators(module_ast, symtab)
-
-    # Stage Two: Specialize template
     symtab.update(typer_symbols)
-    typer_symtab = typer(module_ast, symtab)
+    return module_ast, typer(module_ast, symtab)
+
+def stage_2(module_ast):
+    # Stage Two: Python code
     inline_types(module_ast, inliner_symbols)
     add_imports(module_ast)
-    return ast.unparse(module_ast), typer_symtab
+    return ast.unparse(module_ast)
 
 def inline_decorators(module, symtab):
     """Replace decorators with inlined code"""
@@ -278,17 +283,17 @@ class TFunction(Template):
 class TPointer(Template):
     def __init__(self, item_name):
         self.instance = TPointerInstance(item_name)
-        super().__init__(f'(Any, Any) -> {self.instance!s}')
+        super().__init__(f'(int) -> {self.instance!s}')
 
     def __repr__(self):
         return f"<Class {self.instance!r}>"
 
     def call(self, args):
-        if len(args) != 2:
-            msg = f"{self!r} accepts 2 arguments: {len(args)} given"
+        if len(args) != 1:
+            msg = f"{self!r} accepts 1 argument: {len(args)} given"
             raise blitkit.BuildError(msg)
-        if args[1] != Tint():
-            msg = f"{self!r} argument 2 not an integer"
+        if args[0] != Tint():
+            msg = f"{self!r} argument 1 not an integer"
         return self.instance
 
 class TPointerInstance(Template):
@@ -321,7 +326,7 @@ class TPointerInstance(Template):
 class TPixel(Template):
     def __init__(self, item_name):
         self.instance = TPixelInstance(item_name)
-        super().__init__(f'(Pointer[Any]) -> {self.instance!s}')
+        super().__init__(f'(blitkit.Pointer[Any]) -> {self.instance!s}')
 
     def __repr__(self):
         return f"<Class {self.instance!r}>"
@@ -354,36 +359,19 @@ class TPixelInstance(Template):
         else:
             raise blitkit.BuildError(f"Invalid attribute {name}")
 
-class TArray2(Template):
+class TPixels(Template):
     def __init__(self):
-        super().__init__('blitkit.Array2')
-
-    def __repr__(self):
-        return "<TArray2['numpy.int32']>"
+        super().__init__('blitkit.Pixels')
 
     def getattr(self, attr):
+        if attr == 'pixels_address':
+            return Tint()
         if attr == 'shape':
             return TTuple['int', 'int']
         if attr == 'strides':
             return TTuple['int', 'int']
-        if attr == '__array_interface__':
-            return TAny()
-        raise blitkit.BuildError(f"Unknown attribute {attr}")
-
-class TSurface(Template):
-    def __init__(self):
-        super().__init__('blitkit.Surface')
-
-    def __repr__(self):
-        return "<TSurface>[32]"
-
-    def getattr(self, attr):
-        if attr == '_pixels_address':
-            return Tint()
-        if attr == 'get_bytesize':
-            return TFunction['int']
-        if attr == 'get_pitch':
-            return TFunction['int']
+        if attr == 'format':
+            return TExternal('ctypes.c_long')
         raise blitkit.BuildError(f"Unknown attribute {attr}")
 
 typer_symbols = {
@@ -392,8 +380,9 @@ typer_symbols = {
     'tuple': TTuple,
     'blitkit.Pixel': TPixel,
     'blitkit.Pointer': TPointer,
-    'blitkit.Array2': TArray2(),
-    'blitkit.Surface': TSurface(),
+    'blitkit.Array2': TFunction[TPixels(), 'blitkit.Array2'],
+    'blitkit.Surface': TFunction[TPixels(), 'blitkit.Surface'],
+    'expand.Pixels': TPixels(),
     'ctypes.c_char': TExternal('ctypes.c_char'),
     'ctypes.c_long': TExternal('ctypes.c_long'),
     }
@@ -428,8 +417,10 @@ class Typer(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         for a in node.args.args:
-            ttype = self.lookup(a.annotation.value)
-            self.symtab[a.arg] = str(ttype)
+            typ_id = a.annotation.value
+            ttype = self.lookup(typ_id)
+            self.symtab[a.arg] = typ_id 
+            self.symtab[str(ttype)] = ttype
         self.generic_visit(node)
 
     def visit_Assign(self, node):
@@ -841,6 +832,87 @@ class ImportCollector(ast.NodeVisitor):
         elements = node.id.split('.')
         if len(elements) > 1:
             self.imports.add('.'.join(elements[0:-1]))
+
+# Python specific inliners
+class Surface:
+    full_Name = 'blitkit.Surface'
+
+    @staticmethod
+    def Pixel(build, ptr_name):
+        build.Name('ctypes.c_long')
+        build.Name('blitkit.Pixel')
+        build.Subscript()
+        build.Call()
+        build.Name(ptr_name)
+        build.end()
+    
+    @staticmethod
+    def size_of(build, surf_name):
+        build.Name(surf_name)
+        build.Attribute('get_size')
+        build.Call()
+        build.end()
+
+    @staticmethod
+    def strides(build, surf_name):
+        build.Tuple()
+        build.Name(surf_name)
+        build.Attribute('get_bytesize')
+        build.Call()
+        build.end()
+        build.Name(surf_name)
+        build.Attribute('get_pitch')
+        build.Call()
+        build.end()
+        build.end()
+
+    @staticmethod
+    def pointer(build, surf_name):
+        build.Name('ctype.c_char')
+        build.Name('blitkit.Pointer')
+        build.Subscript()
+        build.Call()
+        build.Name(surf_name)
+        build.Name(surf_name)
+        build.Attribute('_pixels_address')
+        build.end()
+
+class Array2:
+    full_name = 'blitkit.Array2'
+
+    @staticmethod
+    def Pixel(build, ptr_name):
+        build.Name('ctypes.c_long')
+        build.Name('blitkit.Pixel')
+        build.Subscript()
+        build.Call()
+        build.Name(ptr_name)
+        build.end()
+    
+    @staticmethod
+    def size_of(build, array_name):
+        build.Name(array_name)
+        build.Attribute('shape')
+
+    @staticmethod
+    def strides(build, array_name):
+        build.Name(array_name)
+        build.Attribute('strides')
+
+    @staticmethod
+    def pointer(build, array_name):
+        build.Name('ctypes.c_char')
+        build.Name('blitkit.Pointer')
+        build.Subscript()
+        build.Call()
+        build.Name(array_name)
+        build.Constant(0)
+        build.Constant('data')
+        build.Name(array_name)
+        build.Attribute('__array_interface__')
+        build.Subscript()
+        build.Subscript()
+        build.end()
 
 # This is what should be generated by expand.expand for
 #

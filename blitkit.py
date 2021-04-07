@@ -70,17 +70,29 @@ class C_Iterators(BlitterFactory):
         b = astkit.TreeBuilder()
         b.identifier(fn_name)
         b.arguments()
-        b.arg('arg_1', arg_types[0].full_name)
-        b.arg('arg_2', arg_types[1].full_name)
+        b.arg('argument_1', arg_types[0].full_name)
+        b.arg('argument_2', arg_types[1].full_name)
         b.end()
         b.FunctionDef()
 
         # Array dimensions and starting points
+        b.Name(arg_types[0].full_name)
+        b.Call()
+        b.Name('argument_1')
+        b.end()
+        b.Name('arg_1')
+        b.Assign1()
+        b.Name(arg_types[1].full_name)
+        b.Call()
+        b.Name('argument_2')
+        b.end()
+        b.Name('arg_2')
+        b.Assign1()
         get_dims(b, ndims, arg_types[0], 'arg_1')
-        arg_types[0].pointer(b, 'arg_1')
+        get_byte_pointer(b, arg_types[0], 'arg_1')
         b.Name('parg_1')
         b.Assign1()
-        arg_types[1].pointer(b, 'arg_2')
+        get_byte_pointer(b, arg_types[1], 'arg_2')
         b.Name('parg_2')
         b.Assign1()
 
@@ -118,8 +130,8 @@ class C_Iterators(BlitterFactory):
         b.Lt()
         b.While()
         inline_call(b, fn_ast)
-        arg_types[0].Pixel(b, 'parg_1')
-        arg_types[1].Pixel(b, 'parg_2')
+        cast_to_pixel(b, arg_types[0], 'arg_1', 'parg_1')
+        cast_to_pixel(b, arg_types[1], 'arg_2', 'parg_2')
         b.end()
         b.Name(f'arg_1_stride_{i}')
         b.Name('parg_1')
@@ -142,15 +154,26 @@ class C_Iterators(BlitterFactory):
         return b.pop()
 
 def get_dims(build, ndims, typ, name):
-    typ.size_of(build, name)
+    build.Name(name)
+    build.Attribute('shape')
     build.Tuple()
     for i in range(ndims):
         build.Name(f'dim_{i}')
     build.end()
     build.Assign1()
 
+def get_byte_pointer(build, typ, name):
+    build.Name('ctypes.c_char')
+    build.Name('blitkit.Pointer')
+    build.Subscript()
+    build.Call()
+    build.Name(name)
+    build.Attribute('pixels_address')
+    build.end()
+
 def get_strides(build, ndims, typ, name):
-    typ.strides(build, name)
+    build.Name(name)
+    build.Attribute('strides')
     build.Tuple()
     for i in range(ndims):
         build.Name(f'{name}_stride_{i}')
@@ -165,6 +188,15 @@ def get_delta(build, index, prev_index, name):
     build.Sub()
     build.Name(f'{name}_delta_{index}')
     build.Assign1()
+
+def cast_to_pixel(build, pixels_type, pixels_name, ptr_name):
+    build.Name(pixels_name)
+    build.Attribute('format')
+    build.Name('blitkit.Pixel')
+    build.Subscript()
+    build.Call()
+    build.Name(ptr_name)
+    build.end()
 
 def name_of(o):
     try:
@@ -236,88 +268,63 @@ class ReplaceName(ast.NodeTransformer):
             pass
         return node
 
-# Python specific inliners
-class Surface:
-    full_Name = 'blitkit.Surface'
+# Python specific classes:
+class Cached:
+    _cache = {} 
 
-    @staticmethod
-    def Pixel(build, ptr_name):
-        build.Name('ctypes.c_long')
-        build.Name('blitkit.Pixel')
-        build.Subscript()
-        build.Call()
-        build.Name(ptr_name)
-        build.end()
-    
-    @staticmethod
-    def size_of(build, surf_name):
-        build.Name(surf_name)
-        build.Attribute('get_size')
-        build.Call()
-        build.end()
+    def __new__(cls, item, *args, **kwds):
+        try:
+            return Cached._cache[id(item)]
+        except KeyError:
+            pass
+        self = object.__new__(cls)
+        self.__init__(item, *args, **kwds)
+        Cached._cache[id(self)] = self
+        return self
 
-    @staticmethod
-    def strides(build, surf_name):
-        build.Tuple()
-        build.Name(surf_name)
-        build.Attribute('get_bytesize')
-        build.Call()
-        build.end()
-        build.Name(surf_name)
-        build.Attribute('get_pitch')
-        build.Call()
-        build.end()
-        build.end()
+class Surface(Cached):
+    full_name = 'blitkit.Surface'
 
-    @staticmethod
-    def pointer(build, surf_name):
-        build.Name('ctype.c_char')
-        build.Name('blitkit.Pointer')
-        build.Subscript()
-        build.Call()
-        build.Name(surf_name)
-        build.Name(surf_name)
-        build.Attribute('_pixels_address')
-        build.end()
+    def __init__(self, surface):
+        self.surf = surface
 
-class Array2:
+    @property
+    def pixels_address(self):
+        return self.surf._pixels_address
+
+    @property
+    def shape(self):
+        return self.surf.get_size()
+
+    @property
+    def strides(self):
+        return self.surf.get_bytesize(), self.surf.get_pitch()
+
+    @property
+    def format(self):
+        # For now, it is a ctype
+        assert(self.surf.get_bitsize() == 32)
+        assert(ctypes.sizeof(ctypes.c_long) == 4)
+        return ctypes.c_long
+
+class Array2(Cached):
     full_name = 'blitkit.Array2'
 
-    @staticmethod
-    def Pixel(build, ptr_name):
-        build.Name('ctypes.c_long')
-        build.Name('blitkit.Pixel')
-        build.Subscript()
-        build.Call()
-        build.Name(ptr_name)
-        build.end()
-    
-    @staticmethod
-    def size_of(build, array_name):
-        build.Name(array_name)
-        build.Attribute('shape')
+    def __init__(self, array):
+        self.arr = arr
 
-    @staticmethod
-    def strides(build, array_name):
-        build.Name(array_name)
-        build.Attribute('strides')
+    @property
+    def pixels_address(self):
+        return self.arr.__array_interface__['data'][0]
 
-    @staticmethod
-    def pointer(build, array_name):
-        build.Name('ctypes.c_char')
-        build.Name('blitkit.Pointer')
-        build.Subscript()
-        build.Call()
-        build.Name(array_name)
-        build.Constant(0)
-        build.Constant('data')
-        build.Name(array_name)
-        build.Attribute('__array_interface__')
-        build.Subscript()
-        build.Subscript()
-        build.end()
+    @property
+    def shape(self):
+        return self.arr.shape
 
-# Python specific classes:
+    @property
+    def strides(self):
+        return self.arr.strides
+
 class Generic:
     _cache = {}
 
@@ -423,7 +430,8 @@ class Pointer:
 
 @Generic
 class Pixel:
-    def __init__(self, ctype, pointer):
+    def __init__(self, pixels_type, pointer):
+        ctype = pixels_type
         if pointer.addr % ctypes.sizeof(ctype) != 0:
             raise ValueError("Pointer not aligned on pixel boundary")
         self.from_address = ctype.from_address
@@ -442,3 +450,40 @@ class Pixel:
         self.from_address(self.addr).value = int(p)
 
 blitter = Blitter(C_Iterators, [1, 0])
+
+# This is what should be generated for
+#
+#     @blitkit.blitter(blitkit.Array2, blitkit.Surface)
+#     def do_blit(s, d):
+#         pass
+#     
+# Function globals are:
+#     blitkit.Surface, blitkit.Array2, blitkit.Pointer, blitkit.Pixel
+#     ctypes.c_char
+#
+def do_blit(argument_1, argument_2):
+    # Array dimensions and starting points
+    arg_1 = blitkit.Array2(argument_1)
+    arg_2 = blitkit.Surface(argument_2)
+    dim_0, dim_1 = blitkit.Array2.shape(arg_1)
+    parg_1 = blitkit.Pointer[ctypes.c_char](arg_1.pixels_address)
+    parg_2 = blitkit.Pointer[ctypes.c_char](arg_2.pixels_address)
+
+    # Pointer increments
+    arg_1_stride_0, arg_1_stride_1 = arg_1.strides
+    arg_2_stride_0, arg_2_stride_1 = arg_2.strides
+    arg_1_delta_1 = arg_1_stride_1 - arg_1_stride_0 * dim_0
+    arg_2_delta_1 = arg_2_stride_1 - arg_2_stride_0 * dim_0
+
+    # Loop over index 1...
+    arg_1_end_1 = parg_1 + arg_1_stride_1 * dim_1
+    while parg_1 < arg_1_end_1:
+        # Loop over index 0...
+        arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
+        while parg_1 < arg_1_end_0:
+            blitkit.Pixel[arg_2.format](parg_2).value = blitkit.Pixel[arg_1.format](parg_1)
+            parg_1 += arg_1_stride_0
+            parg_2 += arg_2_stride_0
+
+        parg_1 += arg_1_delta_1
+        parg_2 += arg_2_delta_1

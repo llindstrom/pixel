@@ -11,8 +11,7 @@ def foo(s, d):
 
 symtab = {'blitkit': blitkit}
 
-module_ast, symtab = expand.stage_1(source, '<str>', symtab)
-python_source = ast.unparse(module_ast)
+python_source, symtab = expand.expand(source, '<str>', symtab)
 
 path = 'stage_1.txt'
 with open(path, 'w', encoding='utf-8') as f:

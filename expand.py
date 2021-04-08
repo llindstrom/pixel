@@ -1,7 +1,9 @@
 """Compile loop descriptions file into a Python module
 
-Need to separate out global and local symbol tables to support multiple modue level
-function declarations.
+Need to separate out global and local symbol tables to support multiple
+module level function declarations.
+
+Get rid of 'arg_1 = argument_1' etc.
 """
 
 import blitkit
@@ -360,9 +362,6 @@ class TPixelInstance(Template):
             raise blitkit.BuildError(f"Invalid attribute {name}")
 
 class TPixels(Template):
-    def __init__(self):
-        super().__init__('blitkit.Pixels')
-
     def getattr(self, attr):
         if attr == 'pixels_address':
             return Tint()
@@ -374,15 +373,34 @@ class TPixels(Template):
             return TExternal('ctypes.c_long')
         raise blitkit.BuildError(f"Unknown attribute {attr}")
 
+class TArray2(TPixels):
+    def __init__(self):
+        super().__init__('blitkit.Array2')
+
+    def call(self, args):
+        # Assume class call
+        assert(len(args) == 1)
+        assert(str(args[0]) == str(self))
+        return self
+
+class TSurface(TPixels):
+    def __init__(self):
+        super().__init__('blitkit.Surface')
+
+    def call(self, args):
+        # Assume class call
+        assert(len(args) == 1)
+        assert(str(args[0]) == str(self))
+        return self
+
 typer_symbols = {
     'int': Tint(),
     'str': Tstr(),
     'tuple': TTuple,
     'blitkit.Pixel': TPixel,
     'blitkit.Pointer': TPointer,
-    'blitkit.Array2': TFunction[TPixels(), 'blitkit.Array2'],
-    'blitkit.Surface': TFunction[TPixels(), 'blitkit.Surface'],
-    'expand.Pixels': TPixels(),
+    'blitkit.Array2': TArray2(),
+    'blitkit.Surface': TSurface(),
     'ctypes.c_char': TExternal('ctypes.c_char'),
     'ctypes.c_long': TExternal('ctypes.c_long'),
     }
@@ -620,6 +638,110 @@ class IGeneric:
             symtab[blitkit_typ_id] = typ_id
         return ast.Name(blitkit_typ_id, ctx=node.ctx, typ_id=blitkit_typ_id)
 
+class IArray2:
+    def __init__(self):
+        self.build = astkit.TreeBuilder()
+
+    def Name(self, node, symtab):
+        return node
+
+    def Call(self, node, symtab):
+        # Assume class call
+        return node.args[0]
+
+    def Attribute(self, node, symtab):
+        assert(isinstance(node.ctx, ast.Load))
+        attr = node.attr
+        b = self.build
+        if attr == 'shape':
+            b.push(node.value)
+            b.Attribute('shape')
+            new_node = b.pop()
+        elif attr == 'strides':
+            b.push(node.value)
+            b.Attribute('strides')
+            new_node = b.pop()
+        elif attr == 'format':
+            new_node = ast.Name('ctypes.c_long', ctx=node.ctx)
+        elif attr == 'pixels_address':
+            b.Constant(0)
+            b.Constant('data')
+            b.push(node.value)
+            b.Attribute('__array_interface__')
+            b.Subscript()
+            b.Subscript()
+            new_node = b.pop()
+        else:
+            msg = f"Unknown Array2 attribute {attr}"
+            raise BuildError(msg)
+        new_node.typ_id = node.typ_id
+        return new_node
+
+    def Assign(self, node, symtab):
+        # Only single assignment supported
+        assert(len(node.targets) == 1)
+        if node.targets[0].typ_id != node.value.typ_id:
+            typ_id_t = node.targets[0].typ_id
+            typ_id_v = node.value.typ_id
+            msg = f"Mismatched assigned types: {typ_id_t} = {typ_id_v}"
+            raise blitkit.BuildError(msg)
+        return node
+
+class ISurface:
+    def __init__(self):
+        self.build = astkit.TreeBuilder()
+
+    def Name(self, node, symtab):
+        return node
+
+    def Call(self, node, symtab):
+        # Assume class call
+        return node.args[0]
+
+    def Attribute(self, node, symtab):
+        assert(isinstance(node.ctx, ast.Load))
+        attr = node.attr
+        b = self.build
+        if attr == 'shape':
+            b.push(node.value)
+            b.Attribute('get_size')
+            b.Call()
+            b.end()
+            new_node = b.pop()
+        elif attr == 'strides':
+            b.Tuple()
+            b.push(node.value)
+            b.Attribute('get_bytesize')
+            b.Call()
+            b.End()
+            b.push(node.value)
+            b.Attribute('get_pitch')
+            b.Call()
+            b.end()
+            b.end()
+            new_node = b.pop()
+        elif attr == 'format':
+            new_node = ast.Name('ctypes.c_long', ctx=node.ctx)
+        elif attr == 'pixels_address':
+            b.push(node.value)
+            b.Attribute('_pixels_address')
+            new_node = b.pop()
+        else:
+            msg = f"Unknown Surface attribute {attr}"
+            raise BuildError(msg)
+        new_node.typ_id = node.typ_id
+        return new_node
+
+    def Assign(self, node, symtab):
+        # Only single assignment supported
+        assert(len(node.targets) == 1)
+        if node.targets[0].typ_id != node.value.typ_id:
+            typ_id_t = node.targets[0].typ_id
+            typ_id_v = node.value.typ_id
+            msg = f"Mismatched assigned types: {typ_id_t} = {typ_id_v}"
+            raise blitkit.BuildError(msg)
+        return node
+
 class IPointer(IGeneric):
     python_type = 'int'
 
@@ -635,7 +757,8 @@ class IPointer(IGeneric):
     def Call(self, node, symtab):
         # Assume __init__ call
         assert(node.typ_id.startswith("blitkit.Pointer["))
-        value = node.args[1]
+        assert(len(node.args) == 1)
+        value = node.args[0]
         value.typ_id = self.python_type
         if isinstance(value, ast.Name):
             self.symtab[value.id] = value.typ_id
@@ -770,6 +893,8 @@ class IAny:
 i_any = IAny()
 
 inliner_symbols = {
+    'blitkit.Array2': IArray2(),
+    'blitkit.Surface': ISurface(),
     'blitkit.Pointer': IPointer(),
     'blitkit.Pixel': IPixel(),
     }
@@ -832,87 +957,6 @@ class ImportCollector(ast.NodeVisitor):
         elements = node.id.split('.')
         if len(elements) > 1:
             self.imports.add('.'.join(elements[0:-1]))
-
-# Python specific inliners
-class Surface:
-    full_Name = 'blitkit.Surface'
-
-    @staticmethod
-    def Pixel(build, ptr_name):
-        build.Name('ctypes.c_long')
-        build.Name('blitkit.Pixel')
-        build.Subscript()
-        build.Call()
-        build.Name(ptr_name)
-        build.end()
-    
-    @staticmethod
-    def size_of(build, surf_name):
-        build.Name(surf_name)
-        build.Attribute('get_size')
-        build.Call()
-        build.end()
-
-    @staticmethod
-    def strides(build, surf_name):
-        build.Tuple()
-        build.Name(surf_name)
-        build.Attribute('get_bytesize')
-        build.Call()
-        build.end()
-        build.Name(surf_name)
-        build.Attribute('get_pitch')
-        build.Call()
-        build.end()
-        build.end()
-
-    @staticmethod
-    def pointer(build, surf_name):
-        build.Name('ctype.c_char')
-        build.Name('blitkit.Pointer')
-        build.Subscript()
-        build.Call()
-        build.Name(surf_name)
-        build.Name(surf_name)
-        build.Attribute('_pixels_address')
-        build.end()
-
-class Array2:
-    full_name = 'blitkit.Array2'
-
-    @staticmethod
-    def Pixel(build, ptr_name):
-        build.Name('ctypes.c_long')
-        build.Name('blitkit.Pixel')
-        build.Subscript()
-        build.Call()
-        build.Name(ptr_name)
-        build.end()
-    
-    @staticmethod
-    def size_of(build, array_name):
-        build.Name(array_name)
-        build.Attribute('shape')
-
-    @staticmethod
-    def strides(build, array_name):
-        build.Name(array_name)
-        build.Attribute('strides')
-
-    @staticmethod
-    def pointer(build, array_name):
-        build.Name('ctypes.c_char')
-        build.Name('blitkit.Pointer')
-        build.Subscript()
-        build.Call()
-        build.Name(array_name)
-        build.Constant(0)
-        build.Constant('data')
-        build.Name(array_name)
-        build.Attribute('__array_interface__')
-        build.Subscript()
-        build.Subscript()
-        build.end()
 
 # This is what should be generated by expand.expand for
 #

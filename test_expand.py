@@ -1,17 +1,17 @@
 # This test does not properly check arithmetic
 
 import expand
-import blitkit
+import loops.blitkit
 import numpy
 import ast
 
 source = """\
-@blitkit.blitter(blitkit.Array2, blitkit.Array2)
+@loops.blitter(loops.Array2, loops.Array2)
 def foo(s, d):
     d.pixel = (s.pixel + d.pixel) // 2
 """
 
-symtab = {'blitkit': blitkit}
+symtab = {'loops': loops.blitkit}
 
 ##module_ast, symtab = expand.stage_1(source, '<str>', symtab)
 module_ast, symtab = expand.expand(source, '<str>', symtab)

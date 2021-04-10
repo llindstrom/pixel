@@ -25,7 +25,7 @@ def stage_1(source, path, symbol_table):
     symtab = symbol_table.copy()
     module_ast = ast.parse(source, path, 'exec')
     inline_decorators(module_ast, symtab)
-    return module_ast, loops.typer(module_ast, symtab)
+    return module_ast, typer(module_ast, symtab)
 
 def stage_2(module_ast):
     # Stage Two: Python code
@@ -49,16 +49,6 @@ def typer(module, symtab):
     visitor.visit(module)
     return visitor.symtab
 
-def outer_names(name):
-    """Iteratate over parent import names
-
-    'a' -> (,)
-    'a.b.c' -> ('a', 'a.b')
-    """
-    elements = name.split('.')
-    for i in range(1, len(elements)):
-        yield '.'.join(elements[0:i])
-
 def evaluate(node, symtab):
     """eval a simple ast expression"""
 
@@ -67,7 +57,7 @@ def evaluate(node, symtab):
         try:
             return symtab[node.id]
         except KeyError:
-            msg = "Name {node.id} not in symbol table"
+            msg = f"Name {node.id} not in symbol table"
             raise loops.BuildError(msg)
     elif isinstance(node, ast.Attribute):
         # Get attribute

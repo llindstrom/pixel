@@ -2,8 +2,8 @@
 #
 # TODO: Find way to add globals from type templates Surface and PixelArray
 #
-import astkit
-from astkit import BuildError
+from . import astkit
+from .astkit import BuildError
 import ast
 import ctypes
 import collections
@@ -164,7 +164,7 @@ def get_dims(build, ndims, typ, name):
 
 def get_byte_pointer(build, typ, name):
     build.Name('ctypes.c_char')
-    build.Name('blitkit.Pointer')
+    build.Name('loops.Pointer')
     build.Subscript()
     build.Call()
     build.Name(name)
@@ -192,7 +192,7 @@ def get_delta(build, index, prev_index, name):
 def cast_to_pixel(build, pixels_type, pixels_name, ptr_name):
     build.Name(pixels_name)
     build.Attribute('format')
-    build.Name('blitkit.Pixel')
+    build.Name('loops.Pixel')
     build.Subscript()
     build.Call()
     build.Name(ptr_name)
@@ -283,7 +283,7 @@ class Cached:
         return self
 
 class Surface(Cached):
-    full_name = 'blitkit.Surface'
+    full_name = 'loops.Surface'
 
     def __init__(self, surface):
         self.surf = surface
@@ -308,7 +308,7 @@ class Surface(Cached):
         return ctypes.c_long
 
 class Array2(Cached):
-    full_name = 'blitkit.Array2'
+    full_name = 'loops.Array2'
 
     def __init__(self, array):
         self.arr = arr

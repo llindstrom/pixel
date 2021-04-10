@@ -2,6 +2,7 @@
 
 Annotate an AST with generic type specifier 'typ_id' attributes.
 """
+import loops
 import ast
 
 class Typer(ast.NodeVisitor):

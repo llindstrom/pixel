@@ -1,6 +1,10 @@
 """Specialize an AST for writing as a Python module
 """
 
+from . import astkit
+import re
+import ast
+
 def inline_types(module):
     """Replace types with inlined code"""
 
@@ -27,6 +31,16 @@ def add_imports(module):
     if imports:
         stmt = ast.Import(names=[ast.alias(name) for name in imports])
         module.body.insert(0, stmt)
+
+def outer_names(name):
+    """Iteratate over parent import names
+
+    'a' -> (,)
+    'a.b.c' -> ('a', 'a.b')
+    """
+    elements = name.split('.')
+    for i in range(1, len(elements)):
+        yield '.'.join(elements[0:i])
 
 # Inliner types
 class IGeneric:

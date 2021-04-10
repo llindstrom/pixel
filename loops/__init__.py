@@ -1,4 +1,5 @@
 """Loop compiler
 """
 
-from support import blitter, Surface, Array2, Pointer, Pixel
+##from .support import blitter, Array2, Surface, Pointer, Pixel
+from .astkit import BuildError

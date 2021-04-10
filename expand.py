@@ -31,7 +31,7 @@ def stage_2(module_ast):
     # Stage Two: Python code
     inline_types(module_ast, inliner_symbols)
     add_imports(module_ast)
-    return ast.unparse(module_ast)
+    return module_ast
 
 def inline_decorators(module, symtab):
     """Replace decorators with inlined code"""
@@ -825,7 +825,14 @@ class IPixel(IGeneric):
     def Call(self, node, symtab):
         # Assume __init__ call
         assert(node.typ_id.startswith('blitkit.Pixel['))
-        replacement = node.args[0]
+        b = self.build
+        subtype = self.subtype(node.func.typ_id)
+        b.Name(subtype)
+        b.Attribute('from_address')
+        b.Call()
+        b.push(node.args[0])
+        b.end()
+        replacement = b.pop()
         replacement.typ_id = node.typ_id
         return replacement
 
@@ -833,45 +840,35 @@ class IPixel(IGeneric):
         attr = node.attr
         if isinstance(node.ctx, ast.Load):
             if attr == 'pixel':
-                return self.cast_int(self.value)
+                return self.cast_int(node.value)
         else:
             if attr == 'pixel':
                 # ctypes.c_<int>.from_address(<ptr>).value
                 subtype = self.subtype(node.value.typ_id)
                 assert(subtype is not None)
                 b = self.build
-                b.Name(subtype)
-                b.Attribute('from_address')
-                b.Call()
                 b.push(node.value)
-                b.end()
                 b.Attribute('value')
-                expr = b.pop()
-                expr.ctx = ast.Store()
-                expr.typ_id = 'int'
-                return expr
+                replacement = b.pop()
+                replacement.ctx = ast.Store()
+                replacement.typ_id = 'int'
+                return replacement
         msg = f"Unknown attribute {attr}"
         raise blitkit.BuildError(msg)
 
     def cast_int(self, node):
         subtype = self.subtype(node.typ_id)
         b = self.build
-        b.Name('int')
-        b.Call()
-        b.Name(subtype)
-        b.Attribute('from_address')
-        b.Call()
         b.push(node)
-        b.end()
         b.Attribute('value')
-        b.end()
-        return b.pop()
+        replacement = b.pop()
+        replacement.typ_id = 'int'
+        return replacement
 
     def Assign(self, node, symtab):
         assert(node.value.typ_id.startswith('blitkit.Pixel['))
         assert(len(node.targets) == 1)
-        assert(node.targets[0].typ_id == 'int')
-        node.value = self.cast_int(node.value)
+        assert(node.targets[0].typ_id == node.value.typ_id)
         return node
 
 class IAny:

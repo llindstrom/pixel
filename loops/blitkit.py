@@ -463,11 +463,11 @@ blitter = Blitter(C_Iterators, [1, 0])
 #
 def do_blit(argument_1, argument_2):
     # Array dimensions and starting points
-    arg_1 = blitkit.Array2(argument_1)
-    arg_2 = blitkit.Surface(argument_2)
-    dim_0, dim_1 = blitkit.Array2.shape(arg_1)
-    parg_1 = blitkit.Pointer[ctypes.c_char](arg_1.pixels_address)
-    parg_2 = blitkit.Pointer[ctypes.c_char](arg_2.pixels_address)
+    arg_1 = loops.Array2(argument_1)
+    arg_2 = loops.Surface(argument_2)
+    dim_0, dim_1 = loops.Array2.shape(arg_1)
+    parg_1 = loops.Pointer[ctypes.c_char](arg_1.pixels_address)
+    parg_2 = loops.Pointer[ctypes.c_char](arg_2.pixels_address)
 
     # Pointer increments
     arg_1_stride_0, arg_1_stride_1 = arg_1.strides
@@ -481,7 +481,7 @@ def do_blit(argument_1, argument_2):
         # Loop over index 0...
         arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
         while parg_1 < arg_1_end_0:
-            blitkit.Pixel[arg_2.format](parg_2).value = blitkit.Pixel[arg_1.format](parg_1)
+            loops.Pixel[arg_2.format](parg_2).value = loops.Pixel[arg_1.format](parg_1)
             parg_1 += arg_1_stride_0
             parg_2 += arg_2_stride_0
 

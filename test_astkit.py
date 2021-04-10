@@ -1,5 +1,5 @@
 import unittest
-import ast, astkit as ak
+import ast, loops.astkit as ak
 import types
 
 class TestBasics(unittest.TestCase):

@@ -1,7 +1,7 @@
-from pixels import Surface, PixelArray, blitter
+import loops
 
-@blitter(PixelArray, Surface)
-def array2_to_surface(src, dst) -> None:
+@loops.blitter(loops.Array2, loops.Surface)
+def array2_to_surface(src, dst):
     dst.pixel = src
 
 #@blitter(RGB_Array, SDL_Surface)

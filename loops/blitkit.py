@@ -4,6 +4,7 @@
 #
 from . import astkit
 from .astkit import BuildError
+from .support import Surface, Array2, Pointer, Pixel
 import ast
 import ctypes
 import collections
@@ -36,23 +37,6 @@ class BlitterFactory:
         check_no_returns(fn_ast)
         arg_types = [self.arg1_type, self.arg2_type]
         return self.make_tree(fn_ast, arg_types)
-##        code = compile(tree, '<C_Iterator>', 'exec')
-##        gbls = {f'{mangled_fn_name}': fn,
-##                 'Pointer_0': pixels.Pointer, # TODO: Move elsewhere
-##                 'c_char_0': ctypes.c_char, # TODO: Move elsewhere
-##                 'Pixel_0': Pixel, # TODO: Move elsewhere
-##                }
-##        lcls = {}
-##        exec(code, gbls, lcls)
-##        blit = lcls[fn_name]
-##        trav = ", ".join(str(i) for i in self.loop_indices)
-##        blit.__doc__ = (
-##            f"{fn_name}(src: {type_name_1}, dst: {type_name_2}) -> None\n\n"
-##             "Blit src to dst. This version uses C pointer arithmetic only\n"
-##            f"to traverse over elements in index order [{trav}].")
-##        blit.tree = tree
-##        blit.wraps = fn
-##        return blit
 
     def make_tree(self, fn_ast, arg_types):
         raise NotImplementedError("Abstract base function")
@@ -267,187 +251,6 @@ class ReplaceName(ast.NodeTransformer):
         except KeyError:
             pass
         return node
-
-# Python specific classes:
-class Cached:
-    _cache = {} 
-
-    def __new__(cls, item, *args, **kwds):
-        try:
-            return Cached._cache[id(item)]
-        except KeyError:
-            pass
-        self = object.__new__(cls)
-        self.__init__(item, *args, **kwds)
-        Cached._cache[id(self)] = self
-        return self
-
-class Surface(Cached):
-    full_name = 'loops.Surface'
-
-    def __init__(self, surface):
-        self.surf = surface
-
-    @property
-    def pixels_address(self):
-        return self.surf._pixels_address
-
-    @property
-    def shape(self):
-        return self.surf.get_size()
-
-    @property
-    def strides(self):
-        return self.surf.get_bytesize(), self.surf.get_pitch()
-
-    @property
-    def format(self):
-        # For now, it is a ctype
-        assert(self.surf.get_bitsize() == 32)
-        assert(ctypes.sizeof(ctypes.c_long) == 4)
-        return ctypes.c_long
-
-class Array2(Cached):
-    full_name = 'loops.Array2'
-
-    def __init__(self, array):
-        self.arr = arr
-
-    @property
-    def pixels_address(self):
-        return self.arr.__array_interface__['data'][0]
-
-    @property
-    def shape(self):
-        return self.arr.shape
-
-    @property
-    def strides(self):
-        return self.arr.strides
-
-class Generic:
-    _cache = {}
-
-    def __new__(cls, container_type):
-        try:
-            return cls._cache[container_type.__name__]
-        except KeyError:
-            c = object.__new__(cls)
-            c.__init__(container_type)
-            cls._cache[container_type.__name__] = c
-        return c
-
-    @property
-    def __name__(self):
-        return self.cls.__name__
-
-    @property
-    def __module__(self):
-        return self.cls.__module__
-
-    def __init__(self, cls):
-        self.cls = cls
-        self._cache = {}
-
-    def __getitem__(self, item_type):
-        return functools.partial(self.cls, item_type)
-
-@Generic
-class Pointer:
-    def __init__(self, ctype, obj, addr):
-        self.obj = obj  # To keep alive
-        self.addr = addr
-        self.ctype = ctype
-        self.size = ctypes.sizeof(ctype)
-
-    def __int__(self):
-        return addr
-
-    def __add__(self, other):
-        if not isinstance(other, int):
-            raise TypeError("Can only add integers to a pointer")
-        addr = self.addr + self.size * other
-        return type(self)(self.ctype, self.obj, addr)
-
-    def __radd__(self, other):
-        if not isinstance(other, int):
-            raise TypeError("Can only add integers to a pointer")
-        addr = self.addr + self.size * other
-        return type(self)(self.ctype, self.obj, addr)
-
-    def __iadd__(self, other):
-        if not isinstance(other, int):
-            raise TypeError("Can only add integers to a pointer")
-        self.addr += self.size * other
-        return self
-
-    def __sub__(self, other):
-        if not isinstance(other, int):
-            raise TypeError("Can only subtract integers from a pointer")
-        addr = self.addr - self.size * other
-        return type(self)(self.ctype, self.obj, self.addr - self.size)
-
-    def __rsub__(self, other):
-        if not isinstance(other, int):
-            raise TypeError("Can only subtract integers from a pointer")
-        return self.size * other - self.addr
-
-    def __isub__(self, other):
-        if not isinstance(other, int):
-            raise TypeError("Can only subtract integers from a pointer")
-        self.addr -= self.dsize * other
-        return self
-
-    def __getitem__(self, key):
-        if not isinstance(key, int):
-            raise TypeError("Only single integer keys allowed")
-        addr = self.addr + self.size * key
-        return self.ctype.from_address(addr).value
-
-    def __setitem__(self, key, value):
-        if not isinstance(key, int):
-            raise TypeError("Only single integer keys allowed")
-        addr = self.addr + self.size * key
-        self.ctype.from_address(addr).value = value
-
-    def __eq__(self, other):
-        return self.addr == other.addr
-
-    def __ne__(self, other):
-        return self.addr != other.addr
-
-    def __lt__(self, other):
-        return self.addr < other.addr
-
-    def __le__(self, other):
-        return self.addr <= other.addr
-
-    def __gt__(self, other):
-        return self.addr > other.addr
-
-    def __ge__(self, other):
-        return self.addr >= other.addr
-
-@Generic
-class Pixel:
-    def __init__(self, pixels_type, pointer):
-        ctype = pixels_type
-        if pointer.addr % ctypes.sizeof(ctype) != 0:
-            raise ValueError("Pointer not aligned on pixel boundary")
-        self.from_address = ctype.from_address
-        self.obj = pointer.obj
-        self.addr = pointer.addr
-
-    def __int__(self):
-        return int(self.from_address(self.addr).value)
-
-    @property
-    def pixel(self):
-        return int(self.from_address(self.addr).value)
-
-    @pixel.setter
-    def pixel(self, p):
-        self.from_address(self.addr).value = int(p)
 
 blitter = Blitter(C_Iterators, [1, 0])
 

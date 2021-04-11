@@ -4,11 +4,27 @@ These are Python executable versions of generic loops types for testing
 and development.
 """
 
+import loops
 import ctypes
+import functools
 
 # Generic Types
+class Cached:
+    _cache = {} 
 
-class Surface:
+    def __new__(cls, item, *args, **kwds):
+        try:
+            return Cached._cache[id(item)]
+        except KeyError:
+            pass
+        self = object.__new__(cls)
+        self.__init__(item, *args, **kwds)
+        Cached._cache[id(self)] = self
+        return self
+
+class Surface(Cached):
+    full_name = 'loops.Surface'
+
     def __init__(self, surface):
         self.surface = surface
 
@@ -18,13 +34,25 @@ class Surface:
 
     @property
     def strides(self):
-        return self.surface.get_bytesize(), surf.get_pitch()
+        return self.surface.get_bytesize(), self.surface.get_pitch()
 
     @property
     def pixels_address(self):
         return self.surface._pixels_address
 
-class Array2:
+    @property
+    def format(self):
+        # For now, it is a ctype
+        assert(self.surface.get_bitsize() == 32)
+        assert(ctypes.sizeof(ctypes.c_long) == 4)
+        return ctypes.c_long
+
+class Array2(Cached):
+    full_name = 'loops.Array2'
+
+    def __init__(self, array):
+        self.array = array
+
     @property
     def shape(self):
         return self.array.shape
@@ -40,32 +68,44 @@ class Array2:
             raise ValueError("Only bytesize 4 array supported")
         return array.__array_interface__['data'][0]
 
-?class Generic:
-    pass
+    @property
+    def format(self):
+        # For now, it is a ctype
+        assert(self.array.itemsize == 4)
+        assert(ctypes.sizeof(ctypes.c_long) == 4)
+        return ctypes.c_long
 
-@Generic
-class Pixel:
-    def __init__(self, pointer):
-        if pointer.addr % 4 != 0:
-            raise ValueError("Pointer not aligned on word boundary")
-        self.obj = pointer.obj
-        self.addr = pointer.addr
+class Generic:
+    _cache = {}
 
-    def __int__(self):
-        return int(ctypes.c_long.from_address(self.addr).value)
+    def __new__(cls, container_type):
+        try:
+            return cls._cache[container_type.__name__]
+        except KeyError:
+            c = object.__new__(cls)
+            c.__init__(container_type)
+            cls._cache[container_type.__name__] = c
+        return c
 
     @property
-    def pixel(self):
-        return int(ctypes.c_long.from_address(self.addr).value)
+    def __name__(self):
+        return self.cls.__name__
 
-    @pixel.setter
-    def pixel(self, p):
-        ctypes.c_long.from_address(self.addr).value = int(p)
+    @property
+    def __module__(self):
+        return self.cls.__module__
+
+    def __init__(self, cls):
+        self.cls = cls
+        self._cache = {}
+
+    def __getitem__(self, item_type):
+        return functools.partial(self.cls, item_type)
 
 @Generic
 class Pointer:
-    def __init__(self, obj, addr, ctype):
-        self.obj = obj  # To keep alive
+    def __init__(self, ctype, addr):
+        self.full_name = f'loops.Pointer[ctypes.{ctype}]'
         self.addr = addr
         self.ctype = ctype
         self.size = ctypes.sizeof(ctype)
@@ -77,13 +117,13 @@ class Pointer:
         if not isinstance(other, int):
             raise TypeError("Can only add integers to a pointer")
         addr = self.addr + self.size * other
-        return Pointer(self.obj, addr, self.ctype)
+        return Pointer[self.ctype](addr)
 
     def __radd__(self, other):
         if not isinstance(other, int):
             raise TypeError("Can only add integers to a pointer")
         addr = self.addr + self.size * other
-        return Pointer(self.obj, addr, self.ctype)
+        return Pointer[self.ctype](addr)
 
     def __iadd__(self, other):
         if not isinstance(other, int):
@@ -95,7 +135,7 @@ class Pointer:
         if not isinstance(other, int):
             raise TypeError("Can only subtract integers from a pointer")
         addr = self.addr - self.size * other
-        return Pointer(self.obj, self.addr - self.size, self.ctype)
+        return Pointer[self.ctype](addr)
 
     def __rsub__(self, other):
         if not isinstance(other, int):
@@ -138,16 +178,38 @@ class Pointer:
     def __ge__(self, other):
         return self.addr >= other.addr
 
+@Generic
+class Pixel:
+    def __init__(self, ctype, pointer):
+        if pointer.addr % 4 != 0:
+            raise ValueError("Pointer not aligned on word boundary")
+        self.full_name = f'loops.Pixel[ctypes.{ctype}]'
+        self.ctype = ctype
+        self.addr = pointer.addr
+
+    def __int__(self):
+        return int(self.ctype.from_address(self.addr).value)
+
+    @property
+    def pixel(self):
+        return self.ctype.from_address(self.addr).value
+
+    @pixel.setter
+    def pixel(self, p):
+        self.ctype.from_address(self.addr).value = int(p)
+
 # Decorators
 
-?def blitter(src_type, dst_type):
+def blitter(src_type, dst_type):
     def wrap(fn):
         def wrapper(s, d):
-            w, h = src_type.size_of(s)
-            sp = src_type.pointer(s)
-            dp = dst_type.pointer(d)
-            s_stride_c, s_stride_r = src_type.strides(s)
-            d_stride_c, d_stride_r = dst_type.strides(d)
+            s_1 = src_type(s)
+            d_1 = dst_type(d)
+            w, h = s.shape
+            sp = loops.Pointer[ctypes.c_char](s_1.pixels_address)
+            dp = loops.Pointer[ctypes.c_char](d_1.pixels_address)
+            s_stride_c, s_stride_r = s_1.strides
+            d_stride_c, d_stride_r = d_1.strides
 
             # Loop over rows.
             s_end = sp + h * s_stride_r
@@ -157,7 +219,8 @@ class Pointer:
                 # Loop over columns.
                 r_end = sp + s_stride_c * w
                 while (sp < r_end):
-                    fn(src_type.Pixel(sp), dst_type.Pixel(dp))
+                    fn(loops.Pixel[s_1.format](sp),
+                       loops.Pixel[d_1.format](dp)  )
                     sp += s_stride_c
                     dp += d_stride_c
 

@@ -254,6 +254,43 @@ class ReplaceName(ast.NodeTransformer):
 
 blitter = Blitter(C_Iterators, [1, 0])
 
+def inline_decorators(module, symtab):
+    """Replace decorators with inlined code"""
+
+    symtab = symtab.copy()
+    for i in range(len(module.body)):
+        stmt = module.body[i]
+        if isinstance(stmt, ast.FunctionDef):
+            for d in reversed(stmt.decorator_list):
+                module.body[i] = evaluate(d, symtab)(stmt)
+
+def evaluate(node, symtab):
+    """eval a simple ast expression"""
+
+    if isinstance(node, ast.Name):
+        # Get value
+        try:
+            return symtab[node.id]
+        except KeyError:
+            msg = f"Name {node.id} not in symbol table"
+            raise loops.BuildError(msg)
+    elif isinstance(node, ast.Attribute):
+        # Get attribute
+        value = evaluate(node.value, symtab)
+        return getattr(value, node.attr)
+    elif isinstance(node, ast.Call):
+        # call function
+        func = evaluate(node.func, symtab)
+        args = [evaluate(a, symtab) for a in node.args]
+        return func(*args)
+    elif isinstance(node, ast.Subscript):
+        value = evaluate(node.value, symtab)
+        key = evaluate(node.slice, symtab)
+        return value[key]
+    else:
+        msg = "Unknown expression element {node}"
+        raise loops.BuildError(msg)
+
 # This is what should be generated for
 #
 #     @blitkit.blitter(blitkit.Array2, blitkit.Surface)

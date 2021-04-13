@@ -154,7 +154,7 @@ class ISurface:
             b.push(node.value)
             b.Attribute('get_bytesize')
             b.Call()
-            b.End()
+            b.end()
             b.push(node.value)
             b.Attribute('get_pitch')
             b.Call()

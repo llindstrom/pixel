@@ -1,8 +1,5 @@
 """Compile loop descriptions file into a Python module
 
-Need to separate out global and local symbol tables to support multiple
-module level function declarations.
-
 Get rid of 'arg_1 = argument_1' etc.
 """
 
@@ -49,27 +46,27 @@ def typer(module, symtab):
 #
 import ctypes
 
-def do_blit(arg_1: 'loops.Array2', arg_2: 'loops.Surface'):
+def do_blit(s: 'loops.Array2', d: 'loops.Surface'):
     # Array dimensions and starting points
-    dim_0, dim_1 = arg_1.shape
-    parg_1 = arg_1.__array_interface__['data'][0]
-    parg_2 = arg_2._pixels_address
+    dim_0, dim_1 = s.shape
+    s_ptr_0 = s.__array_interface__['data'][0]
+    d_ptr_0 = d._pixels_address
 
     # Pointer increments
-    (arg_1_stride_0, arg_1_stride_1) = arg_1.strides
-    (arg_2_stride_0, arg_2_stride_1) = (arg_2.get_bytesize(), arg_2.get_pitch())
-    arg_1_delta_1 = arg_1_stride_1 - arg_1_stride_0 * dim_0
-    arg_2_delta_1 = arg_2_stride_1 - arg_2_stride_0 * dim_0
+    (s_stride_0, s_stride_1) = s.strides
+    (d_stride_0, d_stride_1) = (d.get_bytesize(), d.get_pitch())
+    s_delta_1 = s_stride_1 - s_stride_0 * dim_0
+    d_delta_1 = d_stride_1 - d_stride_0 * dim_0
 
     # Loop over index 1...
-    arg_1_end_1 = parg_1 + arg_1_stride_1 * dim_1
-    while parg_1 < arg_1_end_1:
+    s_end_1 = s_ptr_0 + s_stride_1 * dim_1
+    while s_ptr_0 < s_end_1:
         # Loop over index 0...
-        arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
-        while parg_1 < arg_1_end_0:
-            ctypes.c_long.from_address(parg_2).value = int(ctypes.c_long.from_address(parg_1).value)
-            parg_1 += arg_1_stride_0
-            parg_2 += arg_2_stride_0
+        s_end_0 = s_ptr_0 + s_stride_0 * dim_0
+        while s_ptr_0 < s_end_0:
+            ctypes.c_long.from_address(d_ptr_0).value = int(ctypes.c_long.from_address(s_ptr_0).value)
+            s_ptr_0 += s_stride_0
+            d_ptr_0 += d_stride_0
 
-        parg_1 += arg_1_delta_1
-        parg_2 += arg_2_delta_1
+        s_ptr_0 += s_delta_1
+        d_ptr_0 += d_delta_1

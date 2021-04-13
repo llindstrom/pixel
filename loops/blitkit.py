@@ -45,92 +45,98 @@ class C_Iterators(BlitterFactory):
     def make_tree(self, fn_ast, arg_types):
         check_no_returns(fn_ast)
         fn_name = fn_ast.name
+        fn_args = [a.arg for a in fn_ast.args.args]
         loop_indices = self.loop_indices
         ndims = len(loop_indices)
 
-        if (ndims != 2):
+        if ndims != 2:
             msg = "Only 2 dimensional arrays supported so far"
             raise NotImplementedError(msg)
+        if len(fn_args) != 2:
+            msg = "Only 2 function argments supported so far"
+            raise NotImplementedError(msg)
+        typed_args = [f'{n}__0' for n in fn_args]
+        arg_ptrs = [f'{n}_ptr_0' for n in fn_args]
         b = astkit.TreeBuilder()
         b.identifier(fn_name)
         b.arguments()
-        b.arg('argument_1', arg_types[0].full_name)
-        b.arg('argument_2', arg_types[1].full_name)
+        b.arg(fn_args[0], arg_types[0].full_name)
+        b.arg(fn_args[1], arg_types[1].full_name)
         b.end()
         b.FunctionDef()
 
         # Array dimensions and starting points
         b.Name(arg_types[0].full_name)
         b.Call()
-        b.Name('argument_1')
+        b.Name(fn_args[0])
         b.end()
-        b.Name('arg_1')
+        b.Name(typed_args[0])
         b.Assign1()
         b.Name(arg_types[1].full_name)
         b.Call()
-        b.Name('argument_2')
+        b.Name(fn_args[1])
         b.end()
-        b.Name('arg_2')
+        b.Name(typed_args[1])
         b.Assign1()
-        get_dims(b, ndims, arg_types[0], 'arg_1')
-        get_byte_pointer(b, arg_types[0], 'arg_1')
-        b.Name('parg_1')
+        get_dims(b, ndims, arg_types[0], typed_args[0])
+        get_byte_pointer(b, arg_types[0], typed_args[0])
+        b.Name(arg_ptrs[0])
         b.Assign1()
-        get_byte_pointer(b, arg_types[1], 'arg_2')
-        b.Name('parg_2')
+        get_byte_pointer(b, arg_types[1], typed_args[1])
+        b.Name(arg_ptrs[1])
         b.Assign1()
 
         # Pointer increments
-        get_strides(b, ndims, arg_types[0], 'arg_1')
-        get_strides(b, ndims, arg_types[1], 'arg_2')
-        get_delta(b, loop_indices[0], loop_indices[1], 'arg_1')
-        get_delta(b, loop_indices[0], loop_indices[1], 'arg_2')
+        get_strides(b, ndims, arg_types[0], fn_args[0])
+        get_strides(b, ndims, arg_types[1], fn_args[1])
+        get_delta(b, loop_indices[0], loop_indices[1], fn_args[0])
+        get_delta(b, loop_indices[0], loop_indices[1], fn_args[1])
 
         # Loop over outer index
         i = loop_indices[0]
-        b.Name('parg_1')
-        b.Name(f'arg_1_stride_{i}')
+        b.Name(arg_ptrs[0])
+        b.Name(f'{fn_args[0]}_stride_{i}')
         b.Name(f'dim_{i}')
         b.Mult()
         b.Add()
-        b.Name(f'arg_1_end_{i}')
+        b.Name(f'{fn_args[0]}_end_{i}')
         b.Assign1()
-        b.Name('parg_1')
-        b.Name(f'arg_1_end_{i}')
+        b.Name(arg_ptrs[0])
+        b.Name(f'{fn_args[0]}_end_{i}')
         b.Lt()
         b.While()
 
         # Loop over inner index
         i = loop_indices[1]
-        b.Name('parg_1')
-        b.Name(f'arg_1_stride_{i}')
+        b.Name(arg_ptrs[0])
+        b.Name(f'{fn_args[0]}_stride_{i}')
         b.Name(f'dim_{i}')
         b.Mult()
         b.Add()
-        b.Name(f'arg_1_end_{i}')
+        b.Name(f'{fn_args[0]}_end_{i}')
         b.Assign1()
-        b.Name('parg_1')
-        b.Name(f'arg_1_end_{i}')
+        b.Name(arg_ptrs[0])
+        b.Name(f'{fn_args[0]}_end_{i}')
         b.Lt()
         b.While()
         inline_call(b, fn_ast)
-        cast_to_pixel(b, arg_types[0], 'arg_1', 'parg_1')
-        cast_to_pixel(b, arg_types[1], 'arg_2', 'parg_2')
+        cast_to_pixel(b, arg_types[0], typed_args[0], arg_ptrs[0])
+        cast_to_pixel(b, arg_types[1], typed_args[1], arg_ptrs[1])
         b.end()
-        b.Name(f'arg_1_stride_{i}')
-        b.Name('parg_1')
+        b.Name(f'{fn_args[0]}_stride_{i}')
+        b.Name(arg_ptrs[0])
         b.IAdd()
-        b.Name(f'arg_2_stride_{i}')
-        b.Name('parg_2')
+        b.Name(f'{fn_args[1]}_stride_{i}')
+        b.Name(arg_ptrs[1])
         b.IAdd()
         b.end()  # inner loop
 
         i = loop_indices[0]
-        b.Name(f'arg_1_delta_{i}')
-        b.Name('parg_1')
+        b.Name(f'{fn_args[0]}_delta_{i}')
+        b.Name(arg_ptrs[0])
         b.IAdd()
-        b.Name(f'arg_2_delta_{i}')
-        b.Name('parg_2')
+        b.Name(f'{fn_args[1]}_delta_{i}')
+        b.Name(arg_ptrs[1])
         b.IAdd()
         b.end()  # outer loop
 
@@ -156,7 +162,7 @@ def get_byte_pointer(build, typ, name):
     build.end()
 
 def get_strides(build, ndims, typ, name):
-    build.Name(name)
+    build.Name(f'{name}__0')
     build.Attribute('strides')
     build.Tuple()
     for i in range(ndims):
@@ -204,11 +210,12 @@ def inline_call(build, fn_ast):
         for name, value in zip(arg_names, args):
             if counts[name] > 1:
                 build.push(value)
-                build.Name(name)
+                build.Name(f'{name}__1')
                 build.Assign1()
             elif counts[name] == 1:
                 replace[name] = value
         replace_name(body, replace)
+        change_id(body, arg_names)
         build.push_list(body)
 
     arg_names = [a.arg for a in fn_ast.args.args]
@@ -252,6 +259,20 @@ class ReplaceName(ast.NodeTransformer):
             pass
         return node
 
+def change_id(body, arg_names):
+    if arg_names:
+        change = ChangeId(arg_names)
+        for stmt in body:
+            change.visit(stmt)
+
+class ChangeId(ast.NodeVisitor):
+    def __init__(self, arg_names):
+        self.arg_names = set(arg_names)
+
+    def visit_Name(self, node):
+        if node.id in self.arg_names:
+            node.id = f'{node.id}__1'
+        
 blitter = Blitter(C_Iterators, [1, 0])
 
 def inline_decorators(module, symtab):
@@ -293,37 +314,37 @@ def evaluate(node, symtab):
 
 # This is what should be generated for
 #
-#     @blitkit.blitter(blitkit.Array2, blitkit.Surface)
+#     @loops.blitter(loops.Array2, loops.Surface)
 #     def do_blit(s, d):
 #         pass
 #     
 # Function globals are:
-#     blitkit.Surface, blitkit.Array2, blitkit.Pointer, blitkit.Pixel
+#     loops.Surface, loops.Array2, loops.Pointer, loops.Pixel
 #     ctypes.c_char
 #
-def do_blit(argument_1, argument_2):
+def do_blit(s, d):
     # Array dimensions and starting points
-    arg_1 = loops.Array2(argument_1)
-    arg_2 = loops.Surface(argument_2)
-    dim_0, dim_1 = loops.Array2.shape(arg_1)
-    parg_1 = loops.Pointer[ctypes.c_char](arg_1.pixels_address)
-    parg_2 = loops.Pointer[ctypes.c_char](arg_2.pixels_address)
+    s__0 = loops.Array2(s)
+    d__0 = loops.Surface(d)
+    dim_0, dim_1 = loops.Array2.shape(s__0)
+    s_ptr_0 = loops.Pointer[ctypes.c_char](s__0.pixels_address)
+    d_ptr_0 = loops.Pointer[ctypes.c_char](d__0.pixels_address)
 
     # Pointer increments
-    arg_1_stride_0, arg_1_stride_1 = arg_1.strides
-    arg_2_stride_0, arg_2_stride_1 = arg_2.strides
-    arg_1_delta_1 = arg_1_stride_1 - arg_1_stride_0 * dim_0
-    arg_2_delta_1 = arg_2_stride_1 - arg_2_stride_0 * dim_0
+    s_stride_0, s_stride_1 = s__0.strides
+    d_stride_0, d_stride_1 = d__0.strides
+    s_delta_1 = s_stride_1 - s_stride_0 * dim_0
+    d_delta_1 = d_stride_1 - d_stride_0 * dim_0
 
     # Loop over index 1...
-    arg_1_end_1 = parg_1 + arg_1_stride_1 * dim_1
-    while parg_1 < arg_1_end_1:
+    s_end_1 = s_ptr_0 + s_stride_1 * dim_1
+    while s_ptr_0 < s_end_1:
         # Loop over index 0...
-        arg_1_end_0 = parg_1 + arg_1_stride_0 * dim_0
-        while parg_1 < arg_1_end_0:
-            loops.Pixel[arg_2.format](parg_2).value = loops.Pixel[arg_1.format](parg_1)
-            parg_1 += arg_1_stride_0
-            parg_2 += arg_2_stride_0
+        s_end_0 = s_ptr_0 + s_stride_0 * dim_0
+        while s_ptr_0 < s_end_0:
+            loops.Pixel[d__0.format](d_ptr_0).value = loops.Pixel[s__0.format](s_ptr_0)
+            s_ptr_0 += s_stride_0
+            d_ptr_0 += d_stride_0
 
-        parg_1 += arg_1_delta_1
-        parg_2 += arg_2_delta_1
+        s_ptr_0 += s_delta_1
+        d_ptr_0 += d_delta_1

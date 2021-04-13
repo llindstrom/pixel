@@ -309,7 +309,11 @@ class IPixel(IGeneric):
     def Assign(self, node, symtab):
         assert(node.value.typ_id.startswith('loops.Pixel['))
         assert(len(node.targets) == 1)
-        assert(node.targets[0].typ_id == node.value.typ_id)
+        if node.targets[0].typ_id == 'int':
+            value = node.value
+            node.value = self.cast_int(value)
+        else:
+            assert(node.targets[0].typ_id == node.value.typ_id)
         return node
 
 class IAny:

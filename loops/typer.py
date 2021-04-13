@@ -8,19 +8,32 @@ import ast
 class Typer(ast.NodeVisitor):
     def __init__(self, symbol_table):
         super().__init__()
-        self.symtab = symbol_table.copy()
-        self.symtab.update(typer_symbols)
+        self.globals = symbol_table.copy()
+        self.globals.update(typer_symbols)
+        self.locals = None
 
     def lookup(self, symbol):
-        try:
-            ttype = self.symtab[symbol]
-        except KeyError:
-            ttype = None
+        if self.locals is not None:
+            try:
+                ttype = self.locals[symbol]
+            except KeyError:
+                ttype = None
+        if ttype is None:
+            try:
+                ttype = self.globals[symbol]
+            except KeyError:
+                ttype = None
         if ttype is None:
             raise loops.BuildError(f"Unknown symbol {symbol}")
         if isinstance(ttype, str):
             return self.lookup(ttype)
         return ttype
+
+    def add_symbol(self, symbol, value):
+        if self.locals is not None:
+            self.locals[symbol] = value
+        else:
+            self.globals[symbol] = value
 
     def visit_Module(self, node):
         for child in node.body:
@@ -35,12 +48,15 @@ class Typer(ast.NodeVisitor):
                 raise loops.BuildError(msg)
 
     def visit_FunctionDef(self, node):
+        self.locals = {}
         for a in node.args.args:
             typ_id = a.annotation.value
             ttype = self.lookup(typ_id)
-            self.symtab[a.arg] = typ_id 
-            self.symtab[str(ttype)] = ttype
+            self.locals[a.arg] = typ_id 
+            self.locals[str(ttype)] = ttype
         self.generic_visit(node)
+        self.globals[node.name] = self.locals
+        self.locals = None
 
     def visit_Assign(self, node):
         value = node.value
@@ -92,7 +108,7 @@ class Typer(ast.NodeVisitor):
             op_name = type(op).__name__
             raise loops.BuildError(f"Unsupported op {op_name}")
         node.typ_id = str(ttype_op)
-        self.symtab[node.typ_id] = ttype_op
+        self.add_symbol(node.typ_id, ttype_op)
 
     def visit_Call(self, node):
         self.generic_visit(node)
@@ -100,7 +116,7 @@ class Typer(ast.NodeVisitor):
         args = [self.lookup(a.typ_id) for a in node.args]
         ttype = self.lookup(typ_id_f).call(args)
         node.typ_id = str(ttype)
-        self.symtab[node.typ_id] = ttype
+        self.add_symbol(node.typ_id, ttype)
 
     def visit_Constant(self, node):
         value = node.value
@@ -121,7 +137,7 @@ class Typer(ast.NodeVisitor):
             try:
                 ttype = self.lookup(name)
             except loops.BuildError:
-                self.symtab[name] = node.typ_id
+                self.add_symbol(name, node.typ_id)
             else:
                 try:
                     typ_id = node.typ_id
@@ -147,7 +163,7 @@ class Typer(ast.NodeVisitor):
         if typ_id is None:
             ttype = ttype_v.getattr(node.attr)
             node.typ_id = str(ttype)
-            self.symtab[node.typ_id] = ttype
+            self.add_symbol(node.typ_id, ttype)
         else:
             ttype_a = self.lookup(typ_id)
             ttype_v.setattr(node.attr, ttype_a)
@@ -170,7 +186,7 @@ class Typer(ast.NodeVisitor):
         if typ_id is None:
             ttype = ttype_v.getitem(ttype_k)
             node.typ_id = str(ttype)
-            self.symtab[node.typ_id] = ttype
+            self.add_symbol(node.typ_id, ttype)
         else:
             ttype_a = self.lookup(typ_id)
             ttype_t.setitem(node.attr, ttype_k, ttype_a)
@@ -182,7 +198,7 @@ class Typer(ast.NodeVisitor):
             ttype = TTuple[tuple(elem_typ_ids)]
             typ_id = str(ttype)
             node.typ_id = typ_id
-            self.symtab[typ_id] = ttype
+            self.add_symbol(typ_id, ttype)
         else:
             ttype_a = self.lookup(get_typ_id(node))
             if ttype_a not in TTuple:

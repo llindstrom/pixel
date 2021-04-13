@@ -9,6 +9,10 @@ source = """\
 @loops.blitter(loops.Array2, loops.Array2)
 def foo(s, d):
     d.pixel = (s.pixel + d.pixel) // 2
+
+@loops.blitter(loops.Array2, loops.Surface)
+def bar(s, d):
+    d.pixel = s
 """
 
 symtab = {'loops': loops.blitkit}

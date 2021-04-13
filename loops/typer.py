@@ -131,7 +131,7 @@ class Typer(ast.NodeVisitor):
                     ttype_a = self.lookup(node.typ_id)
                     if ttype_a != ttype:
                         msg = (f"Name {name} has type {ttype} "
-                                "but is assigned a {ttype_a}")
+                               f"but is assigned a {ttype_a}")
                         raise loops.BuildError(msg)
 
     def visit_Attribute(self, node):

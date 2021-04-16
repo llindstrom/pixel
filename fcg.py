@@ -1,3 +1,4 @@
+import sys
 import ast
 
 class FlowControlMapper(ast.NodeVisitor):
@@ -60,7 +61,8 @@ def pprint(graph, indent=0):
         print()
 
 def test():
-    with open('test_blitter.py', 'r', encoding='utf-8') as f:
+    assert(len(sys.argv) == 2)
+    with open(sys.argv[1], 'r', encoding='utf-8') as f:
         module_ast = ast.parse(f.read(), 'test_blitter.py', 'exec')
     mapper = FlowControlMapper()
     mapper.visit(module_ast)

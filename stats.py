@@ -1,3 +1,4 @@
+import sys
 import ast
 from collections.abc import Mapping
 
@@ -126,7 +127,8 @@ def pprint(mapping, indent=0):
             print(f" {item}")
 
 def test():
-    with open('test_blitter.py', 'r', encoding='utf-8') as f:
+    assert(len(sys.argv) == 2)
+    with open(sys.argv[1], 'r', encoding='utf-8') as f:
         module_ast = ast.parse(f.read(), 'test_blitter.py', 'exec')
     collector = CollectStats()
     collector.visit(module_ast)

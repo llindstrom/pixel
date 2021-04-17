@@ -85,7 +85,7 @@ def useless(label, graph):
     return D - L
 
 def test():
-    assert(len(sys.argv) == 2)
+    assert len(sys.argv) == 2
     with open(sys.argv[1], 'r', encoding='utf-8') as f:
         module_ast = ast.parse(f.read(), 'test_blitter.py', 'exec')
     mapper = cfg.ControlFlowMapper()

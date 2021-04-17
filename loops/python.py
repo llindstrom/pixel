@@ -91,7 +91,7 @@ class IArray2:
         return node.args[0]
 
     def Attribute(self, node, symtab):
-        assert(isinstance(node.ctx, ast.Load))
+        assert isinstance(node.ctx, ast.Load)
         attr = node.attr
         b = self.build
         if attr == 'shape':
@@ -120,7 +120,7 @@ class IArray2:
 
     def Assign(self, node, symtab):
         # Only single assignment supported
-        assert(len(node.targets) == 1)
+        assert len(node.targets) == 1
         if node.targets[0].typ_id != node.value.typ_id:
             typ_id_t = node.targets[0].typ_id
             typ_id_v = node.value.typ_id
@@ -140,7 +140,7 @@ class ISurface:
         return node.args[0]
 
     def Attribute(self, node, symtab):
-        assert(isinstance(node.ctx, ast.Load))
+        assert isinstance(node.ctx, ast.Load)
         attr = node.attr
         b = self.build
         if attr == 'shape':
@@ -175,7 +175,7 @@ class ISurface:
 
     def Assign(self, node, symtab):
         # Only single assignment supported
-        assert(len(node.targets) == 1)
+        assert len(node.targets) == 1
         if node.targets[0].typ_id != node.value.typ_id:
             typ_id_t = node.targets[0].typ_id
             typ_id_v = node.value.typ_id
@@ -197,8 +197,8 @@ class IPointer(IGeneric):
 
     def Call(self, node, symtab):
         # Assume __init__ call
-        assert(node.typ_id.startswith("loops.Pointer["))
-        assert(len(node.args) == 1)
+        assert node.typ_id.startswith("loops.Pointer[")
+        assert len(node.args) == 1
         value = node.args[0]
         value.typ_id = self.python_type
         if isinstance(value, ast.Name):
@@ -207,7 +207,7 @@ class IPointer(IGeneric):
 
     def BinOp(self, node, symtab):
         # Assuming <pointer> op <int> arithmetic only
-        assert(node.typ_id.startswith("loops.Pointer["))
+        assert node.typ_id.startswith("loops.Pointer[")
         op = node.op
         right = node.right
         if isinstance(op, (ast.Add, ast.Sub)):
@@ -231,7 +231,7 @@ class IPointer(IGeneric):
 
     def Assign(self, node, symtab):
         # value is a pointer
-        assert(node.value.typ_id.startswith('loops.Pointer['))
+        assert node.value.typ_id.startswith('loops.Pointer[')
         for t in node.targets:
             if t.typ_id.startswith('loops.Pointer['):
                 t.typ_id = self.python_type
@@ -239,7 +239,7 @@ class IPointer(IGeneric):
 
     def AugAssign(self, node, symtab):
         # <pointer> op= <int> arithmetic only
-        assert(node.value.typ_id == 'int')
+        assert node.value.typ_id == 'int'
         op = node.op
         target = node.target
         if isinstance(op, (ast.Add, ast.Sub)):
@@ -265,7 +265,7 @@ class IPixel(IGeneric):
 
     def Call(self, node, symtab):
         # Assume __init__ call
-        assert(node.typ_id.startswith('loops.Pixel['))
+        assert node.typ_id.startswith('loops.Pixel[')
         b = self.build
         subtype = self.subtype(node.func.typ_id)
         b.Name(subtype)
@@ -286,7 +286,7 @@ class IPixel(IGeneric):
             if attr == 'pixel':
                 # ctypes.c_<int>.from_address(<ptr>).value
                 subtype = self.subtype(node.value.typ_id)
-                assert(subtype is not None)
+                assert subtype is not None
                 b = self.build
                 b.push(node.value)
                 b.Attribute('value')
@@ -307,13 +307,13 @@ class IPixel(IGeneric):
         return replacement
 
     def Assign(self, node, symtab):
-        assert(node.value.typ_id.startswith('loops.Pixel['))
-        assert(len(node.targets) == 1)
+        assert node.value.typ_id.startswith('loops.Pixel[')
+        assert len(node.targets) == 1
         if node.targets[0].typ_id == 'int':
             value = node.value
             node.value = self.cast_int(value)
         else:
-            assert(node.targets[0].typ_id == node.value.typ_id)
+            assert node.targets[0].typ_id == node.value.typ_id
         return node
 
 class IAny:

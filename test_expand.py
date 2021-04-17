@@ -42,7 +42,7 @@ fill(s)
 d = numpy.empty((12, 9), dtype=numpy.int32, order='F')
 fill(d)
 d *= 3
-assert(not (s == d).any())
+assert not (s == d).any()
 r = (s + d) // 2
 foo(s, d)
-assert((d == r).all())
+assert (d == r).all()

@@ -485,8 +485,8 @@ class TArray2(TPixels):
 
     def call(self, args):
         # Assume class call
-        assert(len(args) == 1)
-        assert(str(args[0]) == str(self))
+        assert len(args) == 1
+        assert str(args[0]) == str(self)
         return self
 
 class TSurface(TPixels):
@@ -495,8 +495,8 @@ class TSurface(TPixels):
 
     def call(self, args):
         # Assume class call
-        assert(len(args) == 1)
-        assert(str(args[0]) == str(self))
+        assert len(args) == 1
+        assert str(args[0]) == str(self)
         return self
 
 typer_symbols = {

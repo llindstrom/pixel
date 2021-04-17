@@ -43,8 +43,8 @@ class Surface(Cached):
     @property
     def format(self):
         # For now, it is a ctype
-        assert(self.surface.get_bitsize() == 32)
-        assert(ctypes.sizeof(ctypes.c_long) == 4)
+        assert self.surface.get_bitsize() == 32
+        assert ctypes.sizeof(ctypes.c_long) == 4
         return ctypes.c_long
 
 class Array2(Cached):
@@ -71,8 +71,8 @@ class Array2(Cached):
     @property
     def format(self):
         # For now, it is a ctype
-        assert(self.array.itemsize == 4)
-        assert(ctypes.sizeof(ctypes.c_long) == 4)
+        assert self.array.itemsize == 4
+        assert ctypes.sizeof(ctypes.c_long) == 4
         return ctypes.c_long
 
 class Generic:

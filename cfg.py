@@ -1,8 +1,8 @@
 import sys
 import ast
 
-class FlowControlMapper(ast.NodeVisitor):
-    """Create a flow control graph"""
+class ControlFlowMapper(ast.NodeVisitor):
+    """Create a control flow graph"""
 
     def __init__(self):
         self.graphs = {}
@@ -64,7 +64,7 @@ def test():
     assert(len(sys.argv) == 2)
     with open(sys.argv[1], 'r', encoding='utf-8') as f:
         module_ast = ast.parse(f.read(), 'test_blitter.py', 'exec')
-    mapper = FlowControlMapper()
+    mapper = ControlFlowMapper()
     mapper.visit(module_ast)
     for name, graph in mapper.graphs.items():
         print(f"{name}()")

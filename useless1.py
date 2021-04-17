@@ -4,7 +4,7 @@ https://www.csd.uwo.ca/~mmorenom/CS447/Lectures/CodeOptimization.html/
 node4.html#algoUuselessNamesOfABasicBlock
 """
 
-import fcg
+import cfg
 import sys
 import ast
 
@@ -88,12 +88,12 @@ def test():
     assert(len(sys.argv) == 2)
     with open(sys.argv[1], 'r', encoding='utf-8') as f:
         module_ast = ast.parse(f.read(), 'test_blitter.py', 'exec')
-    mapper = fcg.FlowControlMapper()
+    mapper = cfg.ControlFlowMapper()
     mapper.visit(module_ast)
     graphs = mapper.graphs
     for fname, graph in graphs.items():
         print(f"{fname}()")
-        fcg.pprint(graph)
+        cfg.pprint(graph)
         print()
         for label in graph.keys():
             U = useless(label, graph)

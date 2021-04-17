@@ -2,16 +2,20 @@
 
 import ctypes
 
-def foo(s: 'loops.Array2', d: 'loops.Array2', a):
+def foo(s: 'loops.Array2', d: 'loops.Array2'):
     s__0 = s
     d__0 = d
+    t1 = 12
     (dim_0, dim_1) = s__0.shape
     s_ptr_0 = s__0.__array_interface__['data'][0]
     d_ptr_0 = d__0.__array_interface__['data'][0]
     (s_stride_0, s_stride_1) = s__0.strides
     (d_stride_0, d_stride_1) = d__0.strides
+    t2 = t1
     s_delta_1 = s_stride_1 - s_stride_0 * dim_0
     d_delta_1 = d_stride_1 - d_stride_0 * dim_0
+    t1 = 6
+    t2 = 0
     s_end_1 = s_ptr_0 + s_stride_1 * dim_1
     while s_ptr_0 < s_end_1:
         s_end_0 = s_ptr_0 + s_stride_0 * dim_0

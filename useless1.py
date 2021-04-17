@@ -55,33 +55,16 @@ def useless(label, graph):
     D = set()
     L = lives(label, graph)
     for stmt in block[-1::-1]:
-        if isinstance(stmt, ast.Assign):
-            loads = {node.id for node in ast.walk(stmt.value)
-                     if isinstance(node, ast.Name)}
-            for target in stmt.targets:
-                if isinstance(target, ast.Name):
-                    if target.id not in L:
-                        D.add(target.id)
-                    else:
-                        L.update(loads)
-                elif isinstance(target, ast.Tuple):
-                    for node in target.elts:
-                        if isinstance(node, ast.Name):
-                            if node.id not in L:
-                                D.add(node.id)
-                            else:
-                                L.update(loads)
-        elif isinstance(stmt, ast.AugAssign):
-            loads = {node.id for node in ast.walk(stmt.value)
-                     if isinstance(node, ast.Name)}
-            target = stmt.target
-            if isinstance(target, ast.Name):
-                if target.id not in L:
-                    D.add(target.id)
+        if isinstance(stmt, int):
+            continue
+        if isinstance(stmt, tuple):
+            stmt = stmt[0]
+        for node in ast.walk(stmt):
+            if isinstance(node, ast.Name):
+                if isinstance(node.ctx, ast.Load):
+                    L.add(node.id)
                 else:
-                    L.add(target.id)
-                    L.update(loads)
-        # What about attribute and index assignment?
+                    D.add(node.id)
     return D - L
 
 def test():

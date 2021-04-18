@@ -7,58 +7,28 @@ node4.html#algoUuselessNamesOfABasicBlock
 import cfg
 import sys
 import ast
+from itertools import chain
 
 def vars(node):
     return set(n.id for n in ast.walk(node) if isinstance(n, ast.Name))
 
-def find(A, E, graph, V):
+def lives(block):
+    iblock = iter(block)
+
+    # A is the set of variables in the block
+    A = set(chain.from_iterable(vars(node) for node in next(iblock).body))
+
+    # L is the collection of variables in A also in other reachable blocks.
     L = set()
-    if not E:
-        return L
-    E2 = set()
-    for label in E:
-        if label in V:
-            continue
-        block = graph[label]
-        for stmt in block:
-            if isinstance(stmt, tuple):
-                L |= A & vars(stmt[0])
-                E2.add(stmt[1])
-            elif isinstance(stmt, ast.AST):
-                L |= A & vars(stmt)
-            else:
-                E2.add(stmt)
-        V.add(label)
-    return L | find(A, E2, graph, V)
+    for other in iblock:
+        for node in other.body:
+            L |= A & vars(node)
+    return L
 
-def lives(label, graph):
-    A = set()  # All variables in the block
-    E = set()  # Graph edges leaving the block as a set of labels`
-    block = graph[label]
-    V = set([label])  # Blocks already visited
-
-    # Collect A and E for the block.
-    for stmt in block:
-        if isinstance(stmt, tuple):
-            A |= vars(stmt[0])
-            E.add(stmt[1])
-        elif isinstance(stmt, ast.AST):
-            A |= vars(stmt)
-        else:
-            E.add(stmt)
-    
-    # Build L from elements in A found in other blocks.
-    return find(A, E, graph, V)
-
-def useless(label, graph):
-    block = graph[label]
+def useless(block):
     D = set()
-    L = lives(label, graph)
-    for stmt in block[-1::-1]:
-        if isinstance(stmt, int):
-            continue
-        if isinstance(stmt, tuple):
-            stmt = stmt[0]
+    L = lives(block)
+    for stmt in block.body[-1::-1]:
         for node in ast.walk(stmt):
             if isinstance(node, ast.Name):
                 if isinstance(node.ctx, ast.Load):
@@ -78,9 +48,9 @@ def test():
         print(f"{fname}()")
         cfg.pprint(graph)
         print()
-        for label in graph.keys():
-            U = useless(label, graph)
-            print(f"L{label:<2}: {U}")
+        for block in graph:
+            U = useless(block)
+            print(f"L{block.label:<2}: {U}")
 
 if __name__ == '__main__':
     test()

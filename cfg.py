@@ -1,5 +1,32 @@
 import sys
 import ast
+from collections import deque
+from dataclasses import dataclass, field
+
+@dataclass
+class BasicBlock:
+    label: int
+    body: list[ast.AST] = field(default_factory=list, compare=False)
+    edges_out: list['BasicBlock'] = field(default_factory=list,
+                                          compare = False)
+    next_label = 0
+
+    def __post_init__(self):
+        if self.label < 0:
+            self.label = self.next_label
+            self.next_label += 1
+
+    def __iter__(self):
+        visited = set()
+        blocks = deque([self])
+        while blocks:
+            next_block = blocks.popleft()
+            label = next_block.label
+            if label in visited:
+                continue
+            visited.add(label)
+            yield next_block
+            blocks.extend(next_block.edges_out)
 
 class ControlFlowMapper(ast.NodeVisitor):
     """Create a control flow graph"""
@@ -9,55 +36,54 @@ class ControlFlowMapper(ast.NodeVisitor):
         self.graph = None
 
     def visit_FunctionDef(self, node):
-        self.block = []
-        self.graph = {0: self.block}
+        self.block = BasicBlock(0)
+        self.graph = self.block
         self.next_label = 1
         for stmt in node.body:
             self.visit(stmt)
-        self.graphs[node.name] = self.graph
+        self.graphs[node.name] = self.graph 
         del self.next_label
         del self.block
         self.graph = None
 
     def visit_Assign(self, node):
-        self.block.append(node)
+        self.block.body.append(node)
 
     def visit_AugAssign(self, node):
-        self.block.append(node)
+        self.block.body.append(node)
 
     def visit_Expr(self, node):
-        self.block.append(node)
+        self.block.body.append(node)
 
     def visit_While(self, node):
-        next_block_label = self.next_label
+        loop_condition_label = self.next_label
         self.next_label += 1
-        while_label = self.next_label
+        loop_body_label = self.next_label
         self.next_label += 1
-        self.block.append(while_label)
-        self.block = []
-        self.graph[while_label] = self.block
-        self.block.append((node.test, self.next_label))
-        self.block.append(next_block_label)
-        self.block = []
-        self.graph[self.next_label] = self.block
-        self.next_label += 1
+        loop_body = BasicBlock(loop_body_label)
+        loop_condition = BasicBlock(loop_condition_label,
+                                    [node.test], [loop_body])
+        self.block.edges_out.append(loop_condition)
+        self.block = loop_body
         for stmt in node.body:
             self.visit(stmt)
-        self.block.append(while_label)
-        self.block = []
-        self.graph[next_block_label] = self.block
+        self.block.edges_out.append(loop_condition)
+        self.block = BasicBlock(self.next_label)
+        self.next_label += 1
+        loop_condition.edges_out.insert(0, self.block)
 
 def pprint(graph, indent=0):
-    for label, block in graph.items():
-        print(f"L{label:<2}: ", end='')
-        for stmt in block:
-            if isinstance(stmt, ast.AST):
-                print(ast.unparse(stmt))
-            elif isinstance(stmt, tuple):
-                print(f"IF {ast.unparse(stmt[0])} GOTO L{stmt[1]}")
+    for block in graph:
+        print(f"L{block.label:<2}: ", end='')
+        for node in block.body:
+            code = ast.unparse(node)
+            if isinstance(node, ast.stmt):
+                print(code)
             else:
-                print(f"GOTO L{stmt}")
+                print(f"IF {code} GOTO L{block.edges_out[1].label}")
             print("     ", end='')
+        if block.edges_out:
+            print(f"GOTO L{block.edges_out[0].label}")
         print()
 
 def test():

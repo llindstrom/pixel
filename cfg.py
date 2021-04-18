@@ -9,12 +9,6 @@ class BasicBlock:
     body: list[ast.AST] = field(default_factory=list, compare=False)
     edges_out: list['BasicBlock'] = field(default_factory=list,
                                           compare = False)
-    next_label = 0
-
-    def __post_init__(self):
-        if self.label < 0:
-            self.label = self.next_label
-            self.next_label += 1
 
     def __iter__(self):
         visited = set()

@@ -28,6 +28,17 @@ class BasicBlock:
             yield next_block
             blocks.extend(next_block.edges_out)
 
+    def get_identifiers(self):
+        try:
+            return self.identifiers
+        except AttributeError:
+            identifiers = set()
+            for node in self.body:
+                identifiers.update(n.id for n in ast.walk(node)
+                                   if isinstance(n, ast.Name))
+            self.identifiers = identifiers
+        return identifiers
+
 class ControlFlowMapper(ast.NodeVisitor):
     """Create a control flow graph"""
 

@@ -7,22 +7,17 @@ node4.html#algoUuselessNamesOfABasicBlock
 import cfg
 import sys
 import ast
-from itertools import chain
-
-def vars(node):
-    return set(n.id for n in ast.walk(node) if isinstance(n, ast.Name))
 
 def lives(block):
     iblock = iter(block)
 
     # A is the set of variables in the block
-    A = set(chain.from_iterable(vars(node) for node in next(iblock).body))
+    A = next(iblock).get_identifiers()
 
     # L is the collection of variables in A also in other reachable blocks.
     L = set()
     for other in iblock:
-        for node in other.body:
-            L |= A & vars(node)
+        L |= A & other.get_identifiers()
     return L
 
 def useless(block):

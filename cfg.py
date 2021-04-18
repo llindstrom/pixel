@@ -1,14 +1,38 @@
 import sys
 import ast
 from collections import deque
-from dataclasses import dataclass, field
 
-@dataclass
 class BasicBlock:
-    label: int
-    body: list[ast.AST] = field(default_factory=list, compare=False)
-    edges_out: list['BasicBlock'] = field(default_factory=list,
-                                          compare = False)
+    def __init__(self, label, body=None, edges_out=None):
+        if body is None:
+            body = []
+        if edges_out is None:
+            edges_out = []
+        self.label = label
+        self.body = body
+        self.edges_out = edges_out
+
+    def __repr__(self, other):
+        return f"<{type(self).__name__} L{self.label}>"
+
+    def __str__(self):
+        def as_str(node):
+            code = ast.unparse(node)
+            if isinstance(node, ast.stmt):
+                return code
+            return f"IF {code} GOTO L{self.edges_out[1].label}"
+
+        label = f"L{self.label}:"
+        nodes = "\n    ".join(as_str(node) for node in self.body)
+        if self.edges_out:
+            goto = f"\n    GOTO L{self.edges_out[0].label}"
+        else:
+            goto = "EXIT"
+        return f"{label:<4}{nodes}{goto}"
+
+    def __eq__(self, other):
+        return (isinstance(other, type(self)) and
+                other.label == self.label)
 
     def __iter__(self):
         visited = set()
@@ -79,16 +103,7 @@ class ControlFlowMapper(ast.NodeVisitor):
 
 def pprint(graph, indent=0):
     for block in graph:
-        print(f"L{block.label:<2}: ", end='')
-        for node in block.body:
-            code = ast.unparse(node)
-            if isinstance(node, ast.stmt):
-                print(code)
-            else:
-                print(f"IF {code} GOTO L{block.edges_out[1].label}")
-            print("     ", end='')
-        if block.edges_out:
-            print(f"GOTO L{block.edges_out[0].label}")
+        print(str(block))
         print()
 
 def test():

@@ -1,6 +1,4 @@
 """Compile loop descriptions file into a Python module
-
-Get rid of 'arg_1 = argument_1' etc.
 """
 
 import loops.typer

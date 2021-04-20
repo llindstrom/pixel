@@ -1,7 +1,7 @@
 """Specialize an AST for writing as a Python module
 """
 
-from . import astkit
+from . import astkit, cleanup
 import re
 import ast
 
@@ -10,6 +10,7 @@ def inline_types(module):
 
     visitor = Inliner(inliner_symbols.copy())
     visitor.visit(module)
+    module = cleanup.clean(module)
     add_imports(module)
 
 def add_imports(module):

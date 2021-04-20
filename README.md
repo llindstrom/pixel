@@ -13,7 +13,7 @@ several pygame extension modules, and are coded in various ways.
 
 Adding a new blit or copy options is a daunting undertaking. Not just one loop
 must be written, but several, to cover the various pixel formats an SDL
-surface can have. For instance, the `array_to_surface` pixel array method
+surface can have. For instance, the `array_to_surface` pixelcopy method
 has 18 distinct loops to copy mapped pixel values directly from an array
 to a surface. These loops handle not only varying surface pixel sizes, but also
 array element integer sizes, as well as the presence or absence of per-pixel

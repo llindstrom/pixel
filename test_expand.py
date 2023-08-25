@@ -6,13 +6,13 @@ import numpy
 import ast
 
 source = """\
-@loops.blitter(loops.Array2, loops.Array2)
-def foo(s, d):
-    d.pixel = (s.pixel + d.pixel) // 2
+@public
+def foo(s: Array2, d: Array2):
+    d.value = (s.value + d.value) // 2
 
-@loops.blitter(loops.Array2, loops.Surface)
-def bar(s, d):
-    d.pixel = s
+@public
+def bar(s: Array2, d: Surface):
+    d.pixel.raw = s.value
 """
 
 symtab = {'loops': loops.blitkit}

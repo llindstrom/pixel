@@ -1,0 +1,38 @@
+# The blit description language uses a subset of the Python 3 grammar.
+# Otherwise, it is not python.
+#
+#   - It is an array language.
+#   - It is statically typed.
+#   - The builin types and functions are different.
+#   - Top level if statements become C preprocessor #if conditionals.
+#   - Using a special parameter type like Name creates a generic function.
+#
+
+@inline
+def arithmetic_blend(s, d)
+    s32 = Pixel[Int32](s.pixel)
+    d32 = Pixel[Int32](d.pixel)
+    d.pixel.rgb = (((s32.rgb - d32.rgb) * s32.a + s32.rgb) >> 8) + d32.rgb
+    d.pixel.a = s32.a + d32.a - ((s32.a * d32.a) // 255)
+
+@inline
+def logical_blend(s, d):
+    s32 = Pixel[UInt32](s.pixel)
+    d32 = Pixel[UInt32](d.pixel)
+    d.pixel.rgb = (
+        ((d32.rgb << 8) + (s32.rgb - d32.rgb) * s32.rgb + s32.rgb) >> 8
+    )
+    d.pixel.a = s32.a + d32.a - ((s32.a * d32.a) // 255)
+
+def BLIT(OP: Name, s: Surface, d: Surface):
+    if d.pixel.a:
+        OP(s, d)
+    else:
+        d.pixel.rgba = s.pixel.rgba
+
+@public
+def alpha_blend(s: Surface, d: Surface):
+    if (-1 >> 1) < 0:
+        BLIT(arithmetic_blend, s, d)
+    else:
+        BLIT(logical_blend, s, d)

@@ -1,0 +1,4 @@
+@public
+def blend_add(s: Surface , d: Surface):
+    d.pixel.rgb = min(Pixel[UInt32](d.pixel.rgb) + Pixel[UInt32](s.pixel.rgb),
+                      255)

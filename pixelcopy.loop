@@ -1,0 +1,12 @@
+@public
+def array3_to_surface(src: Array3, dst: Surface):
+    dst.pixel.rgb = src[0:3]
+    dst.pixel.a = 255
+
+@public
+def array3a_to_surface(src: Array3A, dst: Surface):
+    dst.pixel.rgba = src[0:4]
+
+@public
+def array2_to_surface(src: Array2, dst: Surface):
+    dst.pixel.raw = src.value

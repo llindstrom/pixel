@@ -1,0 +1,27 @@
+# The blit description language uses a subset of the Python 3 grammar.
+# Otherwise, it is not python.
+#
+#   - It is an array language.
+#   - It is statically typed.
+#   - The builin types and functions are different.
+#   - Top level if statements become C preprocessor #if conditionals.
+#
+
+if (-1 >> 1) < 0:
+    @macro
+    def ALPHA_BLEND_RGB(sRGB, dRGB, sA):
+        ((((sRGB - dRGB) * sA + sRGB) >> 8) + dRGB)
+else:
+    @macro
+    def ALPHA_BLEND_RGB(sRGB, dRGB, sA):
+        (((dRGB << 8) + (sRGB - dRGB) * sA + sRGB) >> 8)
+
+@public
+def alpha_blend(s: Surface, d: Surface):
+    if d.pixel.a:
+        s32 = Pixel[Int32](s.pixel)
+        d32 = Pixel[Int32](d.pixel)
+        d.pixel.rgb = ALPHA_BLEND_RGB(s32.rgb, d32.rgb, s32.a)
+        d.pixel.a = s32.a + d32.a - ((s32.a * d32.a) // 255)
+    else:
+        d.pixel.rgba = s.pixel.rgba
